@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funguo — Seller dashboard</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="/app.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div id="hdr"></div>
+  <main class="mx-auto max-w-5xl px-4 py-6 space-y-8">
+    <section class="rounded-2xl bg-white border border-slate-200 p-5">
+      <h1 class="text-xl font-bold">Sell with a held payment</h1>
+      <p class="text-sm text-slate-600 mt-1 max-w-3xl">
+        Buyers pay into a PayPal <b>authorization hold</b>, not to you directly. Funds are captured to you when the buyer
+        confirms the item. If there's a dispute, Funguo's AI agent reviews the evidence and executes the matching PayPal
+        action — capture, partial capture, or void — with a written rationale.
+      </p>
+    </section>
+
+    <section class="grid md:grid-cols-5 gap-6">
+      <form id="newListing" class="md:col-span-2 rounded-2xl bg-white border border-slate-200 p-5 space-y-3 h-fit">
+        <h2 class="font-semibold">1. Create a listing</h2>
+        <label class="block text-sm">Seller
+          <select name="seller_id" id="sellerSel" class="mt-1 w-full rounded-lg border-slate-300 border px-3 py-2"></select>
+        </label>
+        <label class="block text-sm">Title
+          <input name="title" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="Sony WH-1000XM5 headphones" />
+        </label>
+        <label class="block text-sm">Description
+          <textarea name="description" required rows="3" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="Condition, what's included…"></textarea>
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block text-sm">Price (USD)
+            <input name="price" type="number" step="0.01" min="1" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+          </label>
+          <label class="block text-sm">Image URL <span class="text-slate-400">(optional)</span>
+            <input name="image_url" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="https://…" />
+          </label>
+        </div>
+        <button class="w-full rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5">Create listing &amp; get checkout link</button>
+        <div id="created" class="text-sm"></div>
+      </form>
+
+      <div class="md:col-span-3 space-y-3">
+        <h2 class="font-semibold">Listings</h2>
+        <div id="listings" class="grid sm:grid-cols-2 gap-3"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="font-semibold mb-3">Recent escrow orders</h2>
+      <div class="overflow-x-auto rounded-2xl bg-white border border-slate-200">
+        <table class="w-full text-sm">
+          <thead class="text-left text-slate-500 border-b"><tr>
+            <th class="px-4 py-2">Order</th><th class="px-4 py-2">Item</th><th class="px-4 py-2">Buyer</th>
+            <th class="px-4 py-2">Amount</th><th class="px-4 py-2">State</th><th class="px-4 py-2">Updated</th></tr></thead>
+          <tbody id="orders"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="text-xs text-slate-500">
+      Agent-native: everything here is a plain REST API. See <code>README.md → Agent API</code> and <code>npm run agent-buyer</code>.
+    </section>
+  </main>
+
+<script>
+const { $, api, esc, money, when, badge, riskBadge, toast, header } = F;
+
+function listingCard(l) {
+  const v = l.verification;
+  return `<article class="rounded-xl bg-white border border-slate-200 overflow-hidden flex flex-col">
+    ${l.image_url ? `<img src="${esc(l.image_url)}" alt="" class="h-32 w-full object-cover bg-slate-100" />` : ''}
+    <div class="p-3 flex-1 flex flex-col gap-1.5">
+      <div class="flex items-start justify-between gap-2">
+        <h3 class="font-medium text-sm leading-snug">${esc(l.title)}</h3>
+        <span class="font-semibold text-sm whitespace-nowrap">${money(l.price, l.currency)}</span>
+      </div>
+      <div class="text-xs text-slate-500">${esc(l.seller?.name)} ${l.seller?.verified ? '· ✓ verified' : '· unverified'}
+        · ${l.seller?.total_orders} orders</div>
+      <div class="flex items-center gap-2 text-xs">${riskBadge(v)} ${v?.flags?.length ? `<span class="text-slate-500 truncate">${esc(v.flags[0])}</span>` : ''}</div>
+      <div class="mt-auto pt-2 flex gap-2">
+        <a href="/l/${l.id}" class="flex-1 text-center rounded-lg bg-slate-900 text-white text-xs font-semibold py-2">Open checkout</a>
+        <button data-copy="${esc(l.checkout_url)}" class="rounded-lg border border-slate-300 text-xs px-2">Copy link</button>
+      </div>
+    </div>
+  </article>`;
+}
+
+async function load() {
+  const [listings, orders] = await Promise.all([api('/api/listings'), api('/api/orders')]);
+  $('#listings').innerHTML = listings.map(listingCard).join('') || '<p class="text-sm text-slate-500">No listings yet — run <code>npm run seed</code>.</p>';
+  $('#orders').innerHTML = orders.map((o) => `<tr class="border-b last:border-0 hover:bg-slate-50 cursor-pointer" onclick="location='/o/${o.id}'">
+      <td class="px-4 py-2 font-mono text-xs">${esc(o.id)}</td><td class="px-4 py-2">${esc(o.listing_title)}</td>
+      <td class="px-4 py-2">${esc(o.buyer_name || '—')} ${o.buyer_kind === 'agent' ? '<span class="text-xs rounded bg-indigo-100 text-indigo-700 px-1">agent</span>' : ''}</td>
+      <td class="px-4 py-2">${money(o.amount, o.currency)}</td><td class="px-4 py-2">${badge(o.state)}</td>
+      <td class="px-4 py-2 text-slate-500 text-xs">${when(o.updated_at)}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="px-4 py-6 text-center text-slate-500">No orders yet.</td></tr>';
+}
+
+document.addEventListener('click', async (e) => {
+  const url = e.target.dataset?.copy;
+  if (!url) return;
+  await navigator.clipboard?.writeText(url).catch(() => {});
+  toast('Checkout link copied', 'info');
+});
+
+$('#newListing').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector('button');
+  btn.disabled = true; btn.textContent = 'Verifying listing…';
+  try {
+    const l = await api('/api/listings', { json: Object.fromEntries(new FormData(e.target)) });
+    $('#created').innerHTML = `<div class="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-1">
+      <div>Created. Share this checkout link:</div>
+      <a class="font-mono text-xs break-all text-emerald-800 underline" href="/l/${l.id}">${esc(l.checkout_url)}</a>
+      ${l.verification ? `<div class="pt-1">${riskBadge(l.verification)} <span class="text-xs text-slate-600">${esc((l.verification.flags || []).join(' · ') || 'no flags')}</span></div>` : ''}
+    </div>`;
+    e.target.reset();
+    load();
+  } catch (err) { toast(err.message); }
+  finally { btn.disabled = false; btn.textContent = 'Create listing & get checkout link'; }
+});
+
+(async () => {
+  header();
+  const sellers = await api('/api/sellers');
+  $('#sellerSel').innerHTML = sellers.map((s) => `<option value="${s.id}">${esc(s.name)} ${s.verified ? '✓' : '(unverified)'}</option>`).join('');
+  load();
+})().catch((e) => toast(e.message));
+</script>
+</body>
+</html>

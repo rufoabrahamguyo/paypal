@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funguo — Checkout</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="/app.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div id="hdr"></div>
+  <main class="mx-auto max-w-4xl px-4 py-6" id="main"><p class="text-slate-500">Loading…</p></main>
+<script>
+const { $, api, esc, money, riskBadge, toast, header } = F;
+const id = location.pathname.split('/').pop();
+
+function verificationPanel(v) {
+  if (!v) return '';
+  const ref = v.reference;
+  return `<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm space-y-2">
+    <div class="flex items-center justify-between"><h3 class="font-semibold">Listing check</h3>${riskBadge(v)}</div>
+    ${ref?.price_stats ? `<div class="text-slate-600">Market reference (${esc(ref.source)}): ${money(ref.price_stats.min)}–${money(ref.price_stats.max)}, median ${money(ref.price_stats.median)}</div>` : ''}
+    ${(v.flags || []).length ? `<ul class="list-disc pl-5 text-slate-700">${v.flags.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<p class="text-slate-500">No red flags found.</p>'}
+  </div>`;
+}
+
+(async () => {
+  header();
+  const l = await api(`/api/listings/${id}`);
+  document.title = `Funguo — ${l.title}`;
+  const s = l.seller;
+  const cancelled = new URLSearchParams(location.search).has('cancelled');
+  $('#main').innerHTML = `
+    ${cancelled ? '<div class="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm">PayPal approval was cancelled — no hold was placed.</div>' : ''}
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="space-y-4">
+        ${l.image_url ? `<img src="${esc(l.image_url)}" class="w-full rounded-2xl border border-slate-200 bg-white" alt="" />` : ''}
+        ${verificationPanel(l.verification)}
+      </div>
+      <div class="space-y-4">
+        <div>
+          <h1 class="text-2xl font-bold leading-tight">${esc(l.title)}</h1>
+          <div class="text-3xl font-bold mt-2">${money(l.price, l.currency)}</div>
+          <p class="text-slate-700 mt-3 whitespace-pre-line">${esc(l.description)}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+          <div class="font-semibold">${esc(s.name)} ${s.verified ? '<span class="text-emerald-700">✓ verified</span>' : '<span class="text-amber-700">unverified</span>'}</div>
+          <div class="text-slate-600">${s.total_orders} orders · ${s.total_disputes} disputes · member since ${new Date(s.member_since).toLocaleDateString()}</div>
+        </div>
+        <form id="buy" class="rounded-xl border-2 border-emerald-600 bg-white p-4 space-y-3">
+          <div class="text-sm font-semibold text-emerald-800">🔒 Escrow checkout — you're charged only when you confirm the item</div>
+          <div class="grid grid-cols-2 gap-2">
+            <input name="buyer_name" placeholder="Your name" class="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <input name="buyer_email" type="email" placeholder="Email" class="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <button data-method="paypal" class="w-full rounded-full bg-[#ffc439] hover:brightness-95 font-bold py-3 text-[#003087]">Pay with <i>PayPal</i> — hold ${money(l.price, l.currency)}</button>
+          <button data-method="card" class="w-full rounded-full border border-slate-300 py-2 text-sm">Use sandbox test card instead (no redirect)</button>
+          <p class="text-xs text-slate-500">Funguo creates a PayPal order with <code>intent: AUTHORIZE</code>. Your funds are held (up to 29 days) and released
+            to the seller only after you confirm receipt — or resolved by the dispute agent.</p>
+        </form>
+      </div>
+    </div>`;
+
+  $('#buy').addEventListener('click', async (e) => {
+    const method = e.target.dataset?.method;
+    if (!method) return;
+    e.preventDefault();
+    const btns = [...e.currentTarget.querySelectorAll('button')];
+    btns.forEach((b) => (b.disabled = true));
+    e.target.textContent = 'Contacting PayPal…';
+    try {
+      const fd = Object.fromEntries(new FormData($('#buy')));
+      const v = await api('/api/orders', { json: { listing_id: id, ...fd, payment_method: method } });
+      if (v.order.state === 'INITIATED' && v.order.approval_url) location.href = v.order.approval_url;
+      else location.href = `/o/${v.order.id}`;
+    } catch (err) {
+      toast(err.message);
+      btns.forEach((b) => (b.disabled = false));
+      e.target.textContent = method === 'paypal' ? 'Pay with PayPal' : 'Use sandbox test card instead (no redirect)';
+    }
+  });
+})().catch((e) => { $('#main').innerHTML = `<p class="text-rose-600">${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>

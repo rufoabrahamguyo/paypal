@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funguo — Order</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="/app.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div id="hdr"></div>
+  <main class="mx-auto max-w-5xl px-4 py-6" id="main"><p class="text-slate-500">Loading…</p></main>
+<script>
+const { $, api, esc, money, when, badge, toast, header, json } = F;
+const id = location.pathname.split('/').pop();
+let pollTimer = null;
+let openDetails = new Set();
+
+const HAPPY = ['INITIATED', 'HELD', 'SHIPPED', 'INSPECTED', 'RELEASED'];
+const DECISION_LABEL = {
+  release_full: ['Released to seller', 'Full capture of the authorization', 'bg-emerald-50 border-emerald-300'],
+  partial_refund: ['Partial refund', 'Captured a smaller amount with final_capture=true; the remainder of the hold returned to the buyer', 'bg-teal-50 border-teal-300'],
+  refund_full: ['Full refund', 'Authorization voided — the buyer is never charged', 'bg-violet-50 border-violet-300'],
+  escalate_to_human: ['Escalated to a human', 'No money moved. Funds stay on hold pending human review', 'bg-amber-50 border-amber-300'],
+};
+
+function stepper(o, events) {
+  const visited = new Set(events.map((e) => e.to_state));
+  const disputed = visited.has('DISPUTED');
+  const path = disputed
+    ? [...HAPPY.filter((s) => visited.has(s)), 'DISPUTED', o.state.startsWith('RESOLVED') ? o.state : 'RESOLVED_…']
+    : HAPPY;
+  return `<ol class="flex flex-wrap items-center gap-1.5 text-xs">${path.map((s, i) => {
+    const done = visited.has(s); const cur = s === o.state;
+    return `<li class="flex items-center gap-1.5">
+      <span class="rounded-full px-2.5 py-1 font-semibold ${cur ? 'bg-slate-900 text-white' : done ? 'bg-slate-200 text-slate-800' : 'bg-white border border-dashed border-slate-300 text-slate-400'}">${esc(s)}</span>
+      ${i < path.length - 1 ? '<span class="text-slate-300">→</span>' : ''}</li>`;
+  }).join('')}</ol>`;
+}
+
+function idRow(label, value, mono = true) {
+  return `<div class="flex justify-between gap-3 py-1.5 border-b border-slate-100 last:border-0">
+    <dt class="text-slate-500">${label}</dt><dd class="${mono ? 'font-mono text-xs' : ''} text-right break-all">${value ?? '—'}</dd></div>`;
+}
+
+function actionsPanel(o) {
+  const a = o.allowed_actions;
+  if (!a.length) return '';
+  const parts = [];
+  if (a.includes('approve')) parts.push(`<a href="${esc(o.approval_url)}" class="block text-center rounded-full bg-[#ffc439] font-bold py-2.5 text-[#003087]">Continue to PayPal approval</a>`);
+  if (a.includes('ship')) parts.push(`<form id="shipForm" class="space-y-2"><div class="text-xs font-semibold text-slate-500 uppercase">Seller</div>
+      <div class="grid grid-cols-3 gap-2"><input name="carrier" value="DHL" class="rounded-lg border border-slate-300 px-2 py-2 text-sm" />
+      <input name="tracking_number" required placeholder="Tracking #" value="JD0146${Math.floor(Math.random() * 1e8)}" class="col-span-2 rounded-lg border border-slate-300 px-2 py-2 text-sm" /></div>
+      <button class="w-full rounded-lg bg-sky-600 text-white text-sm font-semibold py-2">Mark shipped</button></form>`);
+  if (a.includes('deliver')) parts.push(`<div><div class="text-xs font-semibold text-slate-500 uppercase mb-1">Carrier (simulated)</div>
+      <button data-act="deliver" class="w-full rounded-lg border border-slate-300 text-sm py-2">Mark delivered → open inspection</button></div>`);
+  if (a.includes('confirm') || a.includes('dispute')) {
+    parts.push(`<div class="space-y-2"><div class="text-xs font-semibold text-slate-500 uppercase">Buyer</div>
+      ${a.includes('confirm') ? `<button data-act="confirm" class="w-full rounded-lg bg-emerald-600 text-white font-semibold py-2.5">✓ Confirm receipt &amp; release ${money(o.amount)}</button>` : ''}
+      ${a.includes('dispute') ? `<details class="rounded-lg border border-rose-200 bg-rose-50/50" ${openDetails.has('dispute') ? 'open' : ''} data-key="dispute">
+        <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-rose-700">Something's wrong — open a dispute</summary>
+        <form id="disputeForm" class="p-3 pt-0 space-y-2">
+          <textarea name="complaint" required rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Describe what arrived and how it differs from the listing"></textarea>
+          <label class="block text-xs text-slate-600">Photo of what arrived (JPEG/PNG/WebP, ≤5MB)
+            <input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif" class="mt-1 block w-full text-sm" /></label>
+          <button class="w-full rounded-lg bg-rose-600 text-white font-semibold py-2">Submit to the dispute agent</button>
+        </form></details>` : ''}</div>`);
+  }
+  return `<section class="rounded-2xl bg-white border border-slate-200 p-4 space-y-4"><h2 class="font-semibold">Next steps</h2>${parts.join('')}</section>`;
+}
+
+function confidenceBar(c) {
+  if (c == null) return '';
+  const pct = Math.round(c * 100);
+  return `<div class="flex items-center gap-2 text-xs"><span class="text-slate-500 w-20">Confidence</span>
+    <div class="flex-1 h-2 rounded bg-slate-200"><div class="h-2 rounded ${pct >= 70 ? 'bg-emerald-500' : 'bg-amber-500'}" style="width:${pct}%"></div></div>
+    <span class="font-semibold w-10 text-right">${pct}%</span></div>`;
+}
+
+function disputeCard(d, o) {
+  const photo = d.photo_path ? `<img src="/api/disputes/${d.id}/photo" class="w-28 h-20 object-cover rounded-lg border" alt="buyer photo" />` : '';
+  const head = `<div class="flex gap-3">${photo}<div class="text-sm"><div class="text-xs text-slate-500">Buyer complaint · ${when(d.created_at)}</div>
+    <p class="italic text-slate-700">“${esc(d.complaint)}”</p></div></div>`;
+  if (d.status === 'OPEN' || d.status === 'RUNNING') {
+    return `<section class="rounded-2xl bg-white border border-slate-200 p-4 space-y-3">${head}
+      <div class="flex items-center gap-3 rounded-lg bg-slate-900 text-white p-3 text-sm">
+        <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/><path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" stroke-width="3"/></svg>
+        <div><div class="font-semibold">Dispute agent is reviewing the evidence…</div>
+        <div class="text-slate-300 text-xs">Listing, photo, tracking, seller history, market prices, scam patterns. Usually 20–60s.</div></div></div></section>`;
+  }
+  const [title, sub, style] = DECISION_LABEL[d.decision] || ['Agent failed', d.error || '', 'bg-rose-50 border-rose-300'];
+  const f = d.findings || {};
+  const human = d.status === 'ESCALATED' && o.state === 'DISPUTED';
+  return `<section class="rounded-2xl border-2 ${style} p-4 space-y-3">
+    ${head}
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h3 class="text-lg font-bold">${title}${d.decision === 'partial_refund' ? ` — ${money(d.refund_amount)} back to buyer` : ''}</h3>
+      <span class="text-xs text-slate-500">engine: <b>${esc(d.engine)}</b> · ${when(d.decided_at)}</span>
+    </div>
+    <p class="text-xs text-slate-600">${esc(sub)}</p>
+    ${confidenceBar(d.confidence)}
+    <div><div class="text-xs font-semibold text-slate-500 uppercase mb-1">Rationale</div>
+      <p class="text-sm leading-relaxed whitespace-pre-line">${esc(d.rationale)}</p></div>
+    ${f.evidence?.length ? `<div><div class="text-xs font-semibold text-slate-500 uppercase mb-1">Evidence weighed</div>
+      <ul class="text-sm list-disc pl-5 space-y-0.5">${f.evidence.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
+    ${f.guardrail ? `<div class="text-sm rounded-lg bg-amber-100 border border-amber-300 p-2"><b>Guardrail:</b> ${esc(f.guardrail)}</div>` : ''}
+    ${f.proposed_decision ? `<div class="text-xs text-slate-600">Model's proposed action before guardrail: <b>${esc(f.proposed_decision)}</b>${f.proposed_refund_amount ? ` (${money(f.proposed_refund_amount)})` : ''}</div>` : ''}
+    ${d.error ? `<div class="text-xs text-rose-700">Error: ${esc(d.error)}</div>` : ''}
+    ${human ? `<form id="humanForm" data-dispute="${d.id}" class="rounded-lg bg-white border border-amber-300 p-3 space-y-2">
+      <div class="text-sm font-semibold">Human reviewer decision</div>
+      <div class="grid sm:grid-cols-3 gap-2 text-sm">
+        <button data-decision="release_full" class="rounded-lg bg-emerald-600 text-white py-2">Release to seller</button>
+        <div class="flex gap-1"><input name="refund_amount" type="number" step="0.01" placeholder="refund $" class="w-24 rounded-lg border px-2" />
+          <button data-decision="partial_refund" class="flex-1 rounded-lg bg-teal-600 text-white py-2">Partial</button></div>
+        <button data-decision="refund_full" class="rounded-lg bg-violet-600 text-white py-2">Void (refund)</button>
+      </div></form>` : ''}
+    ${d.paypal_response ? `<details data-key="pp-${d.id}" ${openDetails.has('pp-' + d.id) ? 'open' : ''}><summary class="cursor-pointer text-sm font-semibold">PayPal response</summary>${json(d.paypal_response)}</details>` : ''}
+    <details data-key="tx-${d.id}" data-transcript="${d.id}" ${openDetails.has('tx-' + d.id) ? 'open' : ''}><summary class="cursor-pointer text-sm font-semibold">Agent transcript (${d.transcript_steps} steps)</summary><div class="tx text-xs">Loading…</div></details>
+  </section>`;
+}
+
+function render(v) {
+  const { order: o, listing: l, seller: s, events, paypal_calls: calls, disputes } = v;
+  document.title = `Funguo — ${o.id}`;
+  const err = new URLSearchParams(location.search).get('error');
+  $('#main').innerHTML = `
+    ${err ? `<div class="mb-4 rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-800">${esc(err)}</div>` : ''}
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+      <div><div class="text-xs text-slate-500 font-mono">${esc(o.id)} ${o.buyer_kind === 'agent' ? '· <span class="rounded bg-indigo-100 text-indigo-700 px-1">bought by agent</span>' : ''}</div>
+        <h1 class="text-xl font-bold"><a href="/l/${l.id}" class="hover:underline">${esc(l.title)}</a></h1>
+        <div class="text-sm text-slate-600">${money(o.amount, o.currency)} · seller ${esc(s.name)} · buyer ${esc(o.buyer_name || '—')}</div></div>
+      <div class="text-right">${badge(o.state)}</div>
+    </div>
+    <div class="mb-6 overflow-x-auto">${stepper(o, events)}</div>
+    <div class="grid md:grid-cols-5 gap-6">
+      <div class="md:col-span-3 space-y-4">
+        ${disputes.map((d) => disputeCard(d, o)).join('')}
+        ${actionsPanel(o)}
+        <section class="rounded-2xl bg-white border border-slate-200 p-4">
+          <h2 class="font-semibold mb-2">State history</h2>
+          <ol class="text-sm space-y-1.5">${events.map((e) => `<li class="flex gap-3"><span class="text-xs text-slate-400 w-36 shrink-0">${when(e.created_at)}</span>
+            <span>${e.from_state ? `${esc(e.from_state)} → ` : ''}<b>${esc(e.to_state)}</b> <span class="text-slate-500">· ${esc(e.actor)} · ${esc(e.note || '')}</span></span></li>`).join('')}</ol>
+        </section>
+      </div>
+      <div class="md:col-span-2 space-y-4">
+        <section class="rounded-2xl bg-white border border-slate-200 p-4 text-sm">
+          <h2 class="font-semibold mb-1">Verify in PayPal sandbox</h2>
+          <dl>${idRow('PayPal order', esc(o.paypal_order_id))}${idRow('Authorization', esc(o.authorization_id))}
+            ${idRow('Hold expires', when(o.authorization_expires_at), false)}${idRow('Capture', esc(o.capture_id))}
+            ${idRow('Captured', o.captured_amount != null ? money(o.captured_amount) : '—', false)}
+            ${idRow('Platform fee (stub)', o.platform_fee ? money(o.platform_fee) : '—', false)}${idRow('Payment', esc(o.payment_method), false)}
+            ${idRow('Tracking', o.tracking_number ? `${esc(o.carrier)} ${esc(o.tracking_number)} · ${esc(o.delivery_status)}` : esc(o.delivery_status), false)}</dl>
+          <p class="text-xs text-slate-500 mt-2">Log in at <a class="underline" href="https://www.sandbox.paypal.com" target="_blank" rel="noopener">sandbox.paypal.com</a>
+            with the sandbox business account → Activity, and search these ids.</p>
+        </section>
+        <section class="rounded-2xl bg-white border border-slate-200 p-4 text-sm">
+          <h2 class="font-semibold mb-2">PayPal API calls (${calls.length})</h2>
+          <div class="space-y-1">${calls.map((c) => `<details data-key="call-${c.id}" ${openDetails.has('call-' + c.id) ? 'open' : ''}>
+            <summary class="cursor-pointer flex justify-between gap-2"><span><b>${esc(c.op)}</b> <span class="text-slate-400 font-mono text-xs">${esc(c.request?.path || '')}</span></span>
+            <span class="${c.http_status < 300 ? 'text-emerald-700' : 'text-rose-700'} font-mono text-xs">${c.http_status}</span></summary>
+            <div class="text-xs text-slate-500 my-1">PayPal-Request-Id: <span class="font-mono">${esc(c.request_id || '—')}</span></div>${json(c.response)}</details>`).join('') || '<p class="text-slate-500">None yet.</p>'}</div>
+        </section>
+      </div>
+    </div>`;
+
+  wire(v);
+  const busy = o.state === 'INITIATED' || disputes.some((d) => d.status === 'OPEN' || d.status === 'RUNNING');
+  clearTimeout(pollTimer);
+  if (busy) pollTimer = setTimeout(load, 2500);
+}
+
+function setBusy(btn, label) { if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = label; btn.classList.add('opacity-60'); } }
+
+function wire(v) {
+  document.querySelectorAll('details[data-key]').forEach((d) => d.addEventListener('toggle', () => {
+    d.open ? openDetails.add(d.dataset.key) : openDetails.delete(d.dataset.key);
+    if (d.open && d.dataset.transcript) loadTranscript(d);
+  }));
+  document.querySelectorAll('details[data-transcript][open]').forEach(loadTranscript);
+
+  document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', async () => {
+    setBusy(b, b.dataset.act === 'confirm' ? 'Capturing on PayPal…' : 'Working…');
+    try { render(await api(`/api/orders/${id}/${b.dataset.act}`, { json: {} })); }
+    catch (e) { toast(e.message); load(); }
+  }));
+
+  $('#shipForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault(); setBusy(e.submitter, 'Saving…');
+    try { render(await api(`/api/orders/${id}/ship`, { json: Object.fromEntries(new FormData(e.target)) })); }
+    catch (err) { toast(err.message); load(); }
+  });
+
+  $('#disputeForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault(); setBusy(e.submitter, 'Submitting…');
+    try {
+      const res = await fetch(`/api/orders/${id}/disputes`, { method: 'POST', body: new FormData(e.target) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Dispute failed');
+      openDetails.delete('dispute');
+      load();
+    } catch (err) { toast(err.message); load(); }
+  });
+
+  $('#humanForm')?.addEventListener('click', async (e) => {
+    const decision = e.target.dataset?.decision;
+    if (!decision) return;
+    e.preventDefault();
+    const form = e.currentTarget;
+    setBusy(e.target, 'Executing…');
+    try {
+      await api(`/api/disputes/${form.dataset.dispute}/resolve`, { json: { decision, refund_amount: form.refund_amount.value || undefined } });
+      load();
+    } catch (err) { toast(err.message); load(); }
+  });
+}
+
+async function loadTranscript(det) {
+  const box = det.querySelector('.tx');
+  if (box.dataset.loaded) return;
+  try {
+    const d = await api(`/api/disputes/${det.dataset.transcript}`);
+    box.dataset.loaded = 1;
+    box.innerHTML = (d.transcript || []).map((t) => `<div class="mt-2 rounded-lg border border-slate-200 bg-white p-2">
+      <div class="font-semibold text-slate-500 uppercase text-[10px]">${esc(t.role)}${t.tool ? ` · ${esc(t.tool)}` : ''}</div>
+      <div class="whitespace-pre-wrap break-words">${esc(typeof t.content === 'string' ? t.content : JSON.stringify(t.content, null, 2))}</div></div>`).join('') || 'No transcript.';
+  } catch (e) { box.textContent = e.message; }
+}
+
+async function load() {
+  try { render(await api(`/api/orders/${id}`)); }
+  catch (e) { $('#main').innerHTML = `<p class="text-rose-600">${esc(e.message)}</p>`; }
+}
+
+header();
+load();
+</script>
+</body>
+</html>

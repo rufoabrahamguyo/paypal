@@ -196,7 +196,7 @@ export const getOrder = (id) => db.prepare('SELECT * FROM orders WHERE id = ?').
 export const getOrderByPayPalId = (pid) => db.prepare('SELECT * FROM orders WHERE paypal_order_id = ?').get(pid);
 
 const ORDER_COLS = new Set([
-  'payment_method', 'paypal_order_id', 'approval_url', 'authorization_id', 'authorization_expires_at',
+  'payment_method', 'platform_fee', 'paypal_order_id', 'approval_url', 'authorization_id', 'authorization_expires_at',
   'capture_id', 'captured_amount', 'carrier', 'tracking_number', 'delivery_status',
 ]);
 
