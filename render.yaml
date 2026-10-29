@@ -1,0 +1,40 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# New -> Blueprint -> pick this repo. Render prompts for every `sync: false` secret.
+services:
+  - type: web
+    name: funguo
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    # Seeds demo data when the database is empty, then starts the server.
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.19.0
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5-5
+      - key: AGENT_MIN_CONFIDENCE
+        value: "0.7"
+      - key: CHANNEL3_API_KEY
+        sync: false
+      - key: ELASTIC_URL
+        sync: false
+      - key: ELASTIC_API_KEY
+        sync: false
+      - key: PLATFORM_FEE_BPS
+        value: "250"
+      # BASE_URL defaults to RENDER_EXTERNAL_URL, which Render sets automatically.
+      # The free plan's disk is ephemeral: SQLite resets (and re-seeds) on each
+      # deploy or spin-down. On a paid plan, attach a disk and point DB_PATH at it:
+      #   disk: { name: data, mountPath: /var/data, sizeGB: 1 }  +  DB_PATH=/var/data/funguo.db
