@@ -1,6 +1,8 @@
 // Seeds a demo seller roster + listings. `--if-empty` makes it a no-op when
 // data already exists (used by `npm start` so Render boots with demo data).
 import { db, now, insertListing, listListings } from '../src/db.js';
+import { verifyListing } from '../src/verification.js';
+import { indexCorpus } from '../src/scamSearch.js';
 
 const ifEmpty = process.argv.includes('--if-empty');
 const hasData = db.prepare('SELECT COUNT(*) AS n FROM sellers').get().n > 0;
@@ -60,6 +62,18 @@ const listings = [
     image_url: '/img/jacket.svg',
   },
 ];
-for (const l of listings) insertListing({ ...l, created_at: now() });
+// Scam-pattern corpus: local embeddings file, plus the Elastic index if configured.
+try {
+  const idx = await indexCorpus();
+  console.log(`[seed] scam corpus: ${idx.count} patterns -> ${idx.backend}${idx.index ? ` index ${idx.index}` : ''}`);
+} catch (e) {
+  console.warn(`[seed] Elastic indexing failed (${e.message}); local cosine search will be used`);
+}
+
+for (const l of listings) {
+  const verification = await verifyListing(l);
+  insertListing({ ...l, verification_json: JSON.stringify(verification), created_at: now() });
+  console.log(`[seed] ${verification.risk.padEnd(6)} ${l.title}`);
+}
 
 console.log(`[seed] ${sellers.length} sellers, ${listListings().length} listings`);

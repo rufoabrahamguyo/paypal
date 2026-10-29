@@ -156,8 +156,9 @@ function render(v) {
         <section class="rounded-2xl bg-white border border-slate-200 p-4 text-sm">
           <h2 class="font-semibold mb-2">PayPal API calls (${calls.length})</h2>
           <div class="space-y-1">${calls.map((c) => `<details data-key="call-${c.id}" ${openDetails.has('call-' + c.id) ? 'open' : ''}>
-            <summary class="cursor-pointer flex justify-between gap-2"><span><b>${esc(c.op)}</b> <span class="text-slate-400 font-mono text-xs">${esc(c.request?.path || '')}</span></span>
-            <span class="${c.http_status < 300 ? 'text-emerald-700' : 'text-rose-700'} font-mono text-xs">${c.http_status}</span></summary>
+            <summary class="cursor-pointer"><b>${esc(c.op)}</b>
+              <span class="${c.http_status < 300 ? 'text-emerald-700' : 'text-rose-700'} font-mono text-xs float-right">${c.http_status}</span>
+              <div class="pl-4 text-slate-400 font-mono text-[11px] truncate">${esc(c.request?.method || '')} ${esc(c.request?.path || '')}</div></summary>
             <div class="text-xs text-slate-500 my-1">PayPal-Request-Id: <span class="font-mono">${esc(c.request_id || '—')}</span></div>${json(c.response)}</details>`).join('') || '<p class="text-slate-500">None yet.</p>'}</div>
         </section>
       </div>
