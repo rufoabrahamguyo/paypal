@@ -2,12 +2,13 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, assertPayPalConfig, isSimulated } from './config.js';
-import { getOrder } from './db.js';
+import { db, getOrder } from './db.js';
 import * as escrow from './escrow.js';
 import * as sim from './paypalSim.js';
 import { listings } from './routes/listings.js';
 import { orders } from './routes/orders.js';
 import { webhooks } from './routes/webhooks.js';
+import { disputes, recoverInterruptedDisputes } from './routes/disputes.js';
 
 try {
   assertPayPalConfig();
@@ -34,7 +35,7 @@ app.get('/api/health', (req, res) =>
     base_url: config.baseUrl,
   }),
 );
-app.use('/api', listings, orders, webhooks);
+app.use('/api', listings, orders, disputes, webhooks);
 
 // ---- PayPal redirects ----------------------------------------------------------
 app.get('/paypal/return', async (req, res) => {
@@ -74,7 +75,7 @@ app.get('/o/:id', (req, res) => res.sendFile(path.join(pub, 'order.html')));
 app.use('/api', (req, res) => res.status(404).json({ error: `No route ${req.method} ${req.originalUrl}` }));
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  const status = err.status && err.status < 600 ? err.status : 500;
+  const status = err.name === 'MulterError' ? 400 : err.status && err.status < 600 ? err.status : 500;
   if (status >= 500) console.error(err);
   res.status(status).json({
     error: err.message,
@@ -82,6 +83,8 @@ app.use((err, req, res, next) => {
     paypal_details: err.body?.details,
   });
 });
+
+recoverInterruptedDisputes(db);
 
 app.listen(config.port, () => {
   console.log(`\n  Funguo escrow on ${config.baseUrl}`);
