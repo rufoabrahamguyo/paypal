@@ -1,0 +1,25 @@
+{
+  "name": "funguo",
+  "version": "0.1.0",
+  "description": "AI-adjudicated escrow on PayPal Orders v2 authorize/capture/void",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node scripts/seed.js --if-empty && node src/server.js",
+    "seed": "node scripts/seed.js",
+    "agent-buyer": "node scripts/agent-buyer.js",
+    "test:paypal": "node scripts/paypal-smoke.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "multer": "^2.5.0"
+  }
+}
