@@ -2,13 +2,16 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, assertPayPalConfig, isSimulated } from './config.js';
-import { db, getOrder } from './db.js';
+import { db, getOrder, getUserByEmail, insertUser } from './db.js';
 import * as escrow from './escrow.js';
 import * as sim from './paypalSim.js';
 import { listings } from './routes/listings.js';
 import { orders } from './routes/orders.js';
 import { webhooks } from './routes/webhooks.js';
 import { disputes, recoverInterruptedDisputes } from './routes/disputes.js';
+import { dashboard } from './routes/dashboard.js';
+import { account } from './routes/auth.js';
+import { dashboardPath, hashPassword, userFromRequest } from './auth.js';
 
 try {
   assertPayPalConfig();
@@ -35,7 +38,7 @@ app.get('/api/health', (req, res) =>
     base_url: config.baseUrl,
   }),
 );
-app.use('/api', listings, orders, disputes, webhooks);
+app.use('/api', listings, orders, disputes, webhooks, dashboard, account);
 
 // ---- PayPal redirects ----------------------------------------------------------
 app.get('/paypal/return', async (req, res) => {
@@ -70,6 +73,26 @@ app.post('/sim/paypal/approve', express.urlencoded({ extended: false }), (req, r
 // ---- pages ------------------------------------------------------------------------
 app.get('/l/:id', (req, res) => res.sendFile(path.join(pub, 'listing.html')));
 app.get('/o/:id', (req, res) => res.sendFile(path.join(pub, 'order.html')));
+app.get('/market', (req, res) => res.sendFile(path.join(pub, 'market.html')));
+app.get('/login', (req, res) => res.sendFile(path.join(pub, 'login.html')));
+app.get('/signup', (req, res) => res.sendFile(path.join(pub, 'signup.html')));
+app.get('/i/:id', (req, res) => res.sendFile(path.join(pub, 'invite.html')));
+
+function requireRole(role, file) {
+  return (req, res) => {
+    const user = userFromRequest(req);
+    if (!user) return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+    if (user.role !== role) return res.redirect(dashboardPath(user.role));
+    res.sendFile(path.join(pub, file));
+  };
+}
+app.get('/buyer', requireRole('buyer', 'buyer.html'));
+app.get('/seller', requireRole('seller', 'seller.html'));
+app.get('/admin', requireRole('admin', 'admin.html'));
+app.get(['/support', '/support/:id'], (req, res) => {
+  if (!userFromRequest(req)) return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+  res.sendFile(path.join(pub, 'support.html'));
+});
 
 // ---- errors -------------------------------------------------------------------------
 app.use('/api', (req, res) => res.status(404).json({ error: `No route ${req.method} ${req.originalUrl}` }));
@@ -83,6 +106,15 @@ app.use((err, req, res, next) => {
     paypal_details: err.body?.details,
   });
 });
+
+if (!getUserByEmail('admin@funguo.test')) {
+  insertUser({
+    email: 'admin@funguo.test',
+    name: 'Funguo admin',
+    password_hash: hashPassword('funguo-demo'),
+    role: 'admin',
+  });
+}
 
 recoverInterruptedDisputes(db);
 

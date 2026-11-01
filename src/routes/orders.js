@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { listOrders } from '../db.js';
 import * as escrow from '../escrow.js';
+import { userFromRequest } from '../auth.js';
 
 export const orders = Router();
 
@@ -17,13 +18,16 @@ orders.get('/orders/:id', (req, res) => view(res, req.params.id));
 // approval_url for a human to approve; "card" (sandbox test card) places the
 // hold immediately with no redirect, so an autonomous agent can complete it.
 orders.post('/orders', async (req, res) => {
-  const { listing_id, buyer_name, buyer_email, buyer_kind, payment_method } = req.body ?? {};
+  const body = req.body ?? {};
+  const user = userFromRequest(req);
+  const buyerName = user?.role === 'buyer' ? user.name : body.buyer_name;
+  const buyerEmail = user?.role === 'buyer' ? user.email : body.buyer_email;
   const o = await escrow.startCheckout({
-    listingId: listing_id,
-    buyerName: buyer_name,
-    buyerEmail: buyer_email,
-    buyerKind: buyer_kind,
-    paymentMethod: payment_method,
+    listingId: body.listing_id,
+    buyerName,
+    buyerEmail,
+    buyerKind: body.buyer_kind,
+    paymentMethod: body.payment_method,
   });
   view(res, o.id, 201);
 });

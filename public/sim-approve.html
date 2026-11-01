@@ -4,17 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Simulated PayPal approval</title>
-  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
-<body class="bg-slate-100 min-h-screen grid place-items-center p-4">
-  <form method="post" class="w-full max-w-sm rounded-2xl bg-white shadow p-6 space-y-4 text-center">
-    <div class="rounded bg-amber-300 text-amber-950 text-xs font-semibold py-1">SIMULATED — not PayPal</div>
-    <h1 class="text-lg font-bold">Approve payment</h1>
-    <p class="text-sm text-slate-600">This page stands in for PayPal's buyer approval because <code>PAYPAL_MODE=simulate</code>.
-      With sandbox credentials you'd log in with a sandbox personal account here.</p>
-    <input type="hidden" name="token" id="token" />
-    <button class="w-full rounded-full bg-[#ffc439] font-bold py-3 text-[#003087]">Approve (simulated)</button>
-  </form>
+<body class="app">
+  <main class="approve">
+    <form method="post" class="card approve-card">
+      <div class="sim-bar" style="border-radius:8px">Simulated approval. This is not PayPal.</div>
+      <h1>Approve the hold</h1>
+      <p>This page stands in for PayPal’s buyer approval because <code>PAYPAL_MODE=simulate</code>. With sandbox credentials you would sign in with a sandbox personal account here.</p>
+      <input type="hidden" name="token" id="token" />
+      <button class="btn btn-paypal" type="submit">Approve hold</button>
+    </form>
+  </main>
   <script>document.getElementById('token').value = new URLSearchParams(location.search).get('token') || '';</script>
 </body>
 </html>

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funguo — Buyer dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="/theme.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/app.js"></script>
+</head>
+<body class="app">
+  <div id="boot" class="boot" role="status" aria-label="Loading Funguo">
+    <div class="boot-inner">
+      <div class="boot-mark">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0c1829"/><circle cx="12.5" cy="15" r="4.1" fill="none" stroke="#d4af37" stroke-width="1.8"/><path d="M16.2 15H24.2M20.6 15v3.1M24.2 15v2.2" fill="none" stroke="#d4af37" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <p class="boot-word">Funguo</p>
+      <p class="boot-sub">Escrow on PayPal</p>
+    </div>
+  </div>
+  <a class="skip" href="#main">Skip to content</a>
+  <div id="hdr"></div>
+  <main id="main" class="page">
+    <p class="eyebrow">Buyer</p>
+    <h1 class="page-title">Your held payments</h1>
+    <p class="page-lead" id="lead">Payment requests sent to your email, and orders you have already paid into escrow.</p>
+    <div id="board"><p class="meta" style="margin-top:18px">Loading your payments…</p></div>
+  </main>
+<script>
+const { $, api, esc, money, when, persona, orderLink, ticketLink, toast, header } = F;
+
+function hint(o) {
+  if (o.state === 'INITIATED') return 'Finish PayPal approval';
+  if (o.state === 'INSPECTED') return 'Confirm the item or open a dispute';
+  if (o.state === 'DISPUTED') return 'A dispute is open';
+  return '';
+}
+
+function render(data) {
+  const s = data.stats;
+  const invites = (data.invites || []).map((inv) => `<a class="row-link" href="/i/${esc(inv.id)}">
+      <span><b>${esc(inv.title)}</b><span class="meta">${esc(inv.seller_name)} asked you to pay</span></span>
+      <span class="price">${money(inv.price, inv.currency)}</span>
+      <span class="badge b-amber">to pay</span>
+      <span class="meta">${when(inv.created_at)}</span>
+    </a>`).join('');
+  $('#board').innerHTML = `
+    ${invites ? `<section class="stack" style="margin-top:18px"><h2 class="section-title">Waiting for you</h2><div class="card">${invites}</div></section>` : ''}
+    <section class="stats" aria-label="Buyer summary">
+      <article class="card stat"><span>Orders</span><strong>${s.orders}</strong></article>
+      <article class="card stat"><span>On hold</span><strong>${money(s.held)}</strong></article>
+      <article class="card stat"><span>Released</span><strong>${money(s.released)}</strong></article>
+      <article class="card stat"><span>Open complaints</span><strong>${s.open_tickets}</strong></article>
+    </section>
+    <section class="stack">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+        <h2 class="section-title">Orders</h2>
+        <a class="btn btn-line" href="/support?role=buyer">File a complaint</a>
+      </div>
+      <div class="card">${data.orders.map((o) => orderLink(o, hint(o))).join('') || '<p class="empty">No orders for this email yet. Buy from the market, and use the same email at checkout.</p>'}</div>
+    </section>
+    <section class="stack section-gap">
+      <h2 class="section-title">Complaints</h2>
+      <div class="card">${data.tickets.map(ticketLink).join('') || '<p class="empty">No support tickets from this email.</p>'}</div>
+    </section>`;
+}
+
+(async () => {
+  const session = await header();
+  const email = session?.user?.email;
+  if (!email) return;
+  persona.setBuyer(email, session.user.name);
+  $('#lead').textContent = `Signed in as ${email}. Payment requests sent to this email show up here.`;
+  render(await api(`/api/dashboard/buyer?email=${encodeURIComponent(email)}`));
+})().catch((e) => toast(e.message));
+</script>
+</body>
+</html>

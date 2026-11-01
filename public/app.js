@@ -27,60 +27,127 @@ window.F = (() => {
 
   const when = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
 
+  const MARK = `<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0c1829"/><circle cx="12.5" cy="15" r="4.1" fill="none" stroke="#d4af37" stroke-width="1.8"/><path d="M16.2 15H24.2M20.6 15v3.1M24.2 15v2.2" fill="none" stroke="#d4af37" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+
   const STATE_STYLE = {
-    INITIATED: 'bg-slate-100 text-slate-700',
-    HELD: 'bg-amber-100 text-amber-800',
-    SHIPPED: 'bg-sky-100 text-sky-800',
-    INSPECTED: 'bg-indigo-100 text-indigo-800',
-    RELEASED: 'bg-emerald-100 text-emerald-800',
-    DISPUTED: 'bg-rose-100 text-rose-800',
-    RESOLVED_RELEASE: 'bg-emerald-100 text-emerald-800',
-    RESOLVED_PARTIAL: 'bg-teal-100 text-teal-800',
-    RESOLVED_REFUND: 'bg-violet-100 text-violet-800',
+    INITIATED: 'b-slate',
+    HELD: 'b-amber',
+    SHIPPED: 'b-sky',
+    INSPECTED: 'b-indigo',
+    RELEASED: 'b-emerald',
+    DISPUTED: 'b-rose',
+    RESOLVED_RELEASE: 'b-emerald',
+    RESOLVED_PARTIAL: 'b-teal',
+    RESOLVED_REFUND: 'b-violet',
   };
   const badge = (state) =>
-    `<span class="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-wide ${STATE_STYLE[state] || 'bg-slate-100'}">${esc(state)}</span>`;
+    `<span class="badge ${STATE_STYLE[state] || 'b-slate'}">${esc(state)}</span>`;
 
-  const RISK_STYLE = { low: 'bg-emerald-100 text-emerald-800', medium: 'bg-amber-100 text-amber-800', high: 'bg-rose-100 text-rose-800' };
+  const TICKET_STYLE = { open: 'b-amber', in_review: 'b-sky', resolved: 'b-emerald' };
+  const ticketBadge = (status) =>
+    `<span class="badge ${TICKET_STYLE[status] || 'b-slate'}">${esc(String(status || '').replaceAll('_', ' '))}</span>`;
+
+  const RISK_STYLE = { low: 'b-emerald', medium: 'b-amber', high: 'b-rose' };
   const riskBadge = (v) =>
-    v ? `<span class="inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${RISK_STYLE[v.risk] || ''}">${esc(v.risk)} risk</span>` : '';
+    v ? `<span class="risk ${RISK_STYLE[v.risk] || ''}">${esc(v.risk)} risk</span>` : '';
 
   function toast(msg, kind = 'error') {
     const el = document.createElement('div');
-    el.className = `fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-lg rounded-lg px-4 py-3 text-sm shadow-lg ${
-      kind === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'
-    }`;
+    el.className = `toast${kind === 'error' ? ' is-error' : ''}`;
+    el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
     el.textContent = msg;
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 6000);
   }
 
-  async function header() {
-    const h = await api('/api/health').catch(() => null);
-    const sim = h?.paypal_mode === 'simulate';
-    $('#hdr').innerHTML = `
-      ${sim ? `<div class="bg-amber-400 text-amber-950 text-center text-sm font-medium py-1.5 px-4">
-        PAYPAL_MODE=simulate — PayPal calls are answered by an in-process simulator. Set sandbox credentials for real calls.</div>` : ''}
-      <header class="border-b border-slate-200 bg-white">
-        <div class="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between gap-4">
-          <a href="/" class="flex items-center gap-2 font-bold text-lg text-slate-900">
-            <span class="grid place-items-center w-8 h-8 rounded-lg bg-emerald-600 text-white">🔑</span> Funguo
-            <span class="hidden sm:inline text-sm font-normal text-slate-500">AI-adjudicated escrow on PayPal</span>
-          </a>
-          <div class="flex flex-wrap justify-end gap-1.5 text-[11px] text-slate-600">
-            ${h ? [
-              ['PayPal', h.paypal_mode],
-              ['Agent', h.agent_engine],
-              ['Products', h.product_data],
-              ['Scam search', h.scam_search],
-            ].map(([k, v]) => `<span class="rounded bg-slate-100 px-1.5 py-0.5"><b>${k}</b> ${esc(v)}</span>`).join('') : ''}
-          </div>
-        </div>
-      </header>`;
-    return h;
+  function dismissBoot() {
+    const el = document.getElementById('boot');
+    if (!el) return;
+    const done = () => el.remove();
+    el.addEventListener('animationend', (e) => {
+      if (e.animationName === 'boot-fade') done();
+    });
+    setTimeout(done, 1800);
   }
 
-  const json = (o) => `<pre class="text-xs bg-slate-950 text-slate-100 rounded-lg p-3 overflow-x-auto max-h-80">${esc(JSON.stringify(o, null, 2))}</pre>`;
+  async function header() {
+    dismissBoot();
+    const h = await api('/api/health').catch(() => null);
+    const sim = h?.paypal_mode === 'simulate';
+    const me = await api('/api/auth/me').then((r) => r.user).catch(() => null);
+    if (me?.role === 'buyer') persona.setBuyer(me.email, me.name);
+    if (me?.role === 'seller' && me.seller_id) persona.setSeller(me.seller_id);
+    const path = location.pathname;
+    const here = path.startsWith('/buyer') ? 'buyer'
+      : path.startsWith('/seller') ? 'seller'
+      : path.startsWith('/admin') ? 'admin'
+      : path.startsWith('/support') ? 'support'
+      : path.startsWith('/market') ? 'market'
+      : path.startsWith('/login') ? 'login'
+      : path.startsWith('/signup') ? 'signup'
+      : '';
+    const link = (href, key, label) => `<a href="${href}" ${here === key ? 'aria-current="page"' : ''}>${label}</a>`;
+    const links = !me
+      ? [link('/login', 'login', 'Sign in'), link('/signup', 'signup', 'Create account')]
+      : me.role === 'seller'
+        ? [link('/seller', 'seller', 'Dashboard'), link('/support', 'support', 'Support')]
+        : me.role === 'admin'
+          ? [link('/admin', 'admin', 'Audit'), link('/support', 'support', 'Support')]
+          : [link('/buyer', 'buyer', 'Dashboard'), link('/support', 'support', 'Support')];
+    $('#hdr').innerHTML = `
+      ${sim ? `<div class="sim-bar" role="status">Simulate mode. PayPal calls stay inside this app until sandbox credentials are set.</div>` : ''}
+      <header class="topbar">
+        <div class="topbar-inner">
+          <a href="/" class="brand">
+            <span class="brand-mark">${MARK}</span>
+            <span>
+              <span class="brand-name">Funguo</span>
+              <span class="brand-sub">Escrow on PayPal</span>
+            </span>
+          </a>
+          <nav class="topnav" aria-label="Primary">
+            ${links.join('')}
+          </nav>
+          ${me ? `<button type="button" id="logout" class="btn btn-line">Log out</button>` : ''}
+        </div>
+      </header>`;
+    $('#logout')?.addEventListener('click', async () => {
+      await api('/api/auth/logout', { json: {} }).catch(() => {});
+      location.href = '/';
+    });
+    return { health: h, user: me };
+  }
 
-  return { $, api, esc, money, when, badge, riskBadge, toast, header, json };
+  const json = (o) => `<pre class="json">${esc(JSON.stringify(o, null, 2))}</pre>`;
+
+  const persona = {
+    buyerEmail: () => localStorage.getItem('funguo_buyer') || '',
+    buyerName: () => localStorage.getItem('funguo_buyer_name') || '',
+    setBuyer(email, name) {
+      localStorage.setItem('funguo_buyer', String(email || '').trim());
+      if (name) localStorage.setItem('funguo_buyer_name', name);
+    },
+    sellerId: () => localStorage.getItem('funguo_seller') || '',
+    setSeller(id) { localStorage.setItem('funguo_seller', id || ''); },
+  };
+
+  function orderLink(o, hint = '') {
+    const who = o.seller_name && o.buyer_name ? `${o.seller_name} · ${o.buyer_name}` : (o.seller_name || o.buyer_name || '');
+    return `<a class="row-link" href="/o/${esc(o.id)}">
+      <span><b>${esc(o.listing_title || 'Order')}</b><span class="meta">${esc(who)}${hint ? ` · ${esc(hint)}` : ''}</span></span>
+      <span class="price">${money(o.amount, o.currency)}</span>
+      <span>${badge(o.state)}</span>
+      <span class="meta">${when(o.updated_at)}</span>
+    </a>`;
+  }
+
+  function ticketLink(t) {
+    return `<a class="row-link cols-3" href="/support/${esc(t.id)}">
+      <span><b>${esc(t.subject)}</b><span class="meta">${esc(t.topic)}${t.order_id ? ` · ${esc(t.order_id)}` : ''}</span></span>
+      <span>${ticketBadge(t.status)}</span>
+      <span class="meta">${when(t.updated_at)}</span>
+    </a>`;
+  }
+
+  return { $, api, esc, money, when, badge, riskBadge, ticketBadge, toast, header, json, MARK, persona, orderLink, ticketLink };
 })();

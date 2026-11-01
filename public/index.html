@@ -3,133 +3,111 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Funguo — Seller dashboard</title>
+  <title>Funguo — Ask to be paid</title>
+  <meta name="description" content="A seller describes the sale and sends one link. The buyer creates an account and pays into a PayPal hold." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="/theme.js"></script>
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <link rel="stylesheet" href="/styles.css" />
   <script src="/app.js"></script>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
+<body class="app">
+  <div id="boot" class="boot" role="status" aria-label="Loading Funguo">
+    <div class="boot-inner">
+      <div class="boot-mark">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0c1829"/><circle cx="12.5" cy="15" r="4.1" fill="none" stroke="#d4af37" stroke-width="1.8"/><path d="M16.2 15H24.2M20.6 15v3.1M24.2 15v2.2" fill="none" stroke="#d4af37" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <p class="boot-word">Funguo</p>
+      <p class="boot-sub">Escrow on PayPal</p>
+    </div>
+  </div>
+  <a class="skip" href="#main">Skip to content</a>
   <div id="hdr"></div>
-  <main class="mx-auto max-w-5xl px-4 py-6 space-y-8">
-    <section class="rounded-2xl bg-white border border-slate-200 p-5">
-      <h1 class="text-xl font-bold">Sell with a held payment</h1>
-      <p class="text-sm text-slate-600 mt-1 max-w-3xl">
-        Buyers pay into a PayPal <b>authorization hold</b>, not to you directly. Funds are captured to you when the buyer
-        confirms the item. If there's a dispute, Funguo's AI agent reviews the evidence and executes the matching PayPal
-        action — capture, partial capture, or void — with a written rationale.
-      </p>
-    </section>
-
-    <section class="grid md:grid-cols-5 gap-6">
-      <form id="newListing" class="md:col-span-2 rounded-2xl bg-white border border-slate-200 p-5 space-y-3 h-fit">
-        <h2 class="font-semibold">1. Create a listing</h2>
-        <label class="block text-sm">Seller
-          <select name="seller_id" id="sellerSel" class="mt-1 w-full rounded-lg border-slate-300 border px-3 py-2"></select>
-        </label>
-        <label class="block text-sm">Title
-          <input name="title" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="Sony WH-1000XM5 headphones" />
-        </label>
-        <label class="block text-sm">Description
-          <textarea name="description" required rows="3" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="Condition, what's included…"></textarea>
-        </label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="block text-sm">Price (USD)
-            <input name="price" type="number" step="0.01" min="1" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
-          </label>
-          <label class="block text-sm">Image URL <span class="text-slate-400">(optional)</span>
-            <input name="image_url" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="https://…" />
-          </label>
+  <main id="main">
+    <section class="land-hero" aria-labelledby="banner-title">
+      <div class="land-hero-inner">
+        <div>
+          <p class="land-kicker">Escrow on PayPal</p>
+          <h1 id="banner-title">Ask for the money. It waits.</h1>
+          <p class="lede">Write the item and the price. Send one link on WhatsApp or email. The buyer creates an account from that link and pays into a hold. You are paid when they confirm the item.</p>
+          <div class="land-actions">
+            <a class="btn btn-gold" href="/signup?role=seller">Request a payment</a>
+            <a class="btn btn-ghost" href="/signup?role=buyer">I have a link</a>
+          </div>
         </div>
-        <button class="w-full rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5">Create listing &amp; get checkout link</button>
-        <div id="created" class="text-sm"></div>
-      </form>
-
-      <div class="md:col-span-3 space-y-3">
-        <h2 class="font-semibold">Listings</h2>
-        <div id="listings" class="grid sm:grid-cols-2 gap-3"></div>
+        <article class="card land-card">
+          <p class="eyebrow">Payment request</p>
+          <h2>Blue kitenge dress</h2>
+          <p class="land-price">$45.00</p>
+          <p>Size M, cotton, delivery in Nairobi. This amount waits in PayPal until the buyer says the item is right.</p>
+          <div class="land-card-foot">
+            <span class="badge b-amber">Held</span>
+            <a class="btn btn-navy" href="/signup?role=seller">Send one like this</a>
+          </div>
+        </article>
       </div>
     </section>
 
-    <section>
-      <h2 class="font-semibold mb-3">Recent escrow orders</h2>
-      <div class="overflow-x-auto rounded-2xl bg-white border border-slate-200">
-        <table class="w-full text-sm">
-          <thead class="text-left text-slate-500 border-b"><tr>
-            <th class="px-4 py-2">Order</th><th class="px-4 py-2">Item</th><th class="px-4 py-2">Buyer</th>
-            <th class="px-4 py-2">Amount</th><th class="px-4 py-2">State</th><th class="px-4 py-2">Updated</th></tr></thead>
-          <tbody id="orders"></tbody>
-        </table>
+    <section class="land-steps" aria-labelledby="steps-title">
+      <div>
+        <p class="eyebrow">The path</p>
+        <h2 id="steps-title">From a shop message to a hold</h2>
+        <ol class="land-ol">
+          <li><em>01</em><div><strong>Describe the sale</strong><span>Item, condition, and price. That is the whole request.</span></div></li>
+          <li><em>02</em><div><strong>Send it yourself</strong><span>WhatsApp or email opens on your phone. You tap send.</span></div></li>
+          <li><em>03</em><div><strong>The buyer joins</strong><span>The link creates their account, then the PayPal hold.</span></div></li>
+          <li><em>04</em><div><strong>Then it moves</strong><span>They confirm, or a dispute decides capture, a partial, or a void.</span></div></li>
+        </ol>
+      </div>
+      <div class="land-stack">
+        <article class="card land-slip">
+          <header>
+            <h3>The message</h3>
+            <span class="meta">WhatsApp or email</span>
+          </header>
+          <p class="msg">Blue kitenge dress is $45. The money stays on hold until you confirm you have it.</p>
+          <a href="/signup?role=buyer">Open the payment link</a>
+        </article>
+        <article class="card land-slip">
+          <header>
+            <h3>On the buyer’s account</h3>
+            <span class="badge b-amber">Held</span>
+          </header>
+          <p class="land-hold">$45.00<span>PayPal authorization. Captured only after they confirm.</span></p>
+        </article>
       </div>
     </section>
 
-    <section class="text-xs text-slate-500">
-      Agent-native: everything here is a plain REST API. See <code>README.md → Agent API</code> and <code>npm run agent-buyer</code>.
+    <section class="land-band" aria-labelledby="band-title">
+      <div class="land-band-inner">
+        <p class="land-kicker">Until they confirm</p>
+        <h2 class="land-ghost" id="band-title">The money stays put.</h2>
+        <p>Nothing is captured on the way in. The seller ships. The buyer accepts. That is when the hold becomes a payment.</p>
+        <div class="land-actions">
+          <a class="btn btn-gold" href="/signup?role=seller">Start as a seller</a>
+          <a class="btn btn-ghost" href="/login">Sign in</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="land-close">
+      <div class="doors">
+        <a class="card door" href="/signup?role=seller">
+          <p class="eyebrow">Selling</p>
+          <strong>Your shop holds the request</strong>
+          <span>Describe it, send the invite, and watch the order from the seller dashboard.</span>
+        </a>
+        <a class="card door" href="/signup?role=buyer">
+          <p class="eyebrow">Paying</p>
+          <strong>The link is the account</strong>
+          <span>Open what you were sent, create a buyer account, and approve the hold.</span>
+        </a>
+      </div>
+      <p class="note">Already registered? <a href="/login">Sign in</a> and you land on your own dashboard. Operator audit uses <code>admin@funguo.test</code> / <code>funguo-demo</code>.</p>
     </section>
   </main>
-
-<script>
-const { $, api, esc, money, when, badge, riskBadge, toast, header } = F;
-
-function listingCard(l) {
-  const v = l.verification;
-  return `<article class="rounded-xl bg-white border border-slate-200 overflow-hidden flex flex-col">
-    ${l.image_url ? `<img src="${esc(l.image_url)}" alt="" class="h-32 w-full object-cover bg-slate-100" />` : ''}
-    <div class="p-3 flex-1 flex flex-col gap-1.5">
-      <div class="flex items-start justify-between gap-2">
-        <h3 class="font-medium text-sm leading-snug">${esc(l.title)}</h3>
-        <span class="font-semibold text-sm whitespace-nowrap">${money(l.price, l.currency)}</span>
-      </div>
-      <div class="text-xs text-slate-500">${esc(l.seller?.name)} ${l.seller?.verified ? '· ✓ verified' : '· unverified'}
-        · ${l.seller?.total_orders} orders</div>
-      <div class="flex items-center gap-2 text-xs">${riskBadge(v)} ${v?.flags?.length ? `<span class="text-slate-500 truncate">${esc(v.flags[0])}</span>` : ''}</div>
-      <div class="mt-auto pt-2 flex gap-2">
-        <a href="/l/${l.id}" class="flex-1 text-center rounded-lg bg-slate-900 text-white text-xs font-semibold py-2">Open checkout</a>
-        <button data-copy="${esc(l.checkout_url)}" class="rounded-lg border border-slate-300 text-xs px-2">Copy link</button>
-      </div>
-    </div>
-  </article>`;
-}
-
-async function load() {
-  const [listings, orders] = await Promise.all([api('/api/listings'), api('/api/orders')]);
-  $('#listings').innerHTML = listings.map(listingCard).join('') || '<p class="text-sm text-slate-500">No listings yet — run <code>npm run seed</code>.</p>';
-  $('#orders').innerHTML = orders.map((o) => `<tr class="border-b last:border-0 hover:bg-slate-50 cursor-pointer" onclick="location='/o/${o.id}'">
-      <td class="px-4 py-2 font-mono text-xs">${esc(o.id)}</td><td class="px-4 py-2">${esc(o.listing_title)}</td>
-      <td class="px-4 py-2">${esc(o.buyer_name || '—')} ${o.buyer_kind === 'agent' ? '<span class="text-xs rounded bg-indigo-100 text-indigo-700 px-1">agent</span>' : ''}</td>
-      <td class="px-4 py-2">${money(o.amount, o.currency)}</td><td class="px-4 py-2">${badge(o.state)}</td>
-      <td class="px-4 py-2 text-slate-500 text-xs">${when(o.updated_at)}</td></tr>`).join('')
-    || '<tr><td colspan="6" class="px-4 py-6 text-center text-slate-500">No orders yet.</td></tr>';
-}
-
-document.addEventListener('click', async (e) => {
-  const url = e.target.dataset?.copy;
-  if (!url) return;
-  await navigator.clipboard?.writeText(url).catch(() => {});
-  toast('Checkout link copied', 'info');
-});
-
-$('#newListing').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = e.target.querySelector('button');
-  btn.disabled = true; btn.textContent = 'Verifying listing…';
-  try {
-    const l = await api('/api/listings', { json: Object.fromEntries(new FormData(e.target)) });
-    $('#created').innerHTML = `<div class="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-1">
-      <div>Created. Share this checkout link:</div>
-      <a class="font-mono text-xs break-all text-emerald-800 underline" href="/l/${l.id}">${esc(l.checkout_url)}</a>
-      ${l.verification ? `<div class="pt-1">${riskBadge(l.verification)} <span class="text-xs text-slate-600">${esc((l.verification.flags || []).join(' · ') || 'no flags')}</span></div>` : ''}
-    </div>`;
-    e.target.reset();
-    load();
-  } catch (err) { toast(err.message); }
-  finally { btn.disabled = false; btn.textContent = 'Create listing & get checkout link'; }
-});
-
-(async () => {
-  header();
-  const sellers = await api('/api/sellers');
-  $('#sellerSel').innerHTML = sellers.map((s) => `<option value="${s.id}">${esc(s.name)} ${s.verified ? '✓' : '(unverified)'}</option>`).join('');
-  load();
-})().catch((e) => toast(e.message));
-</script>
+<script>F.header();</script>
 </body>
 </html>

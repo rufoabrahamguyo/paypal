@@ -108,6 +108,59 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   payload_json TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS support_tickets (
+  id TEXT PRIMARY KEY,
+  author_role TEXT NOT NULL,
+  author_name TEXT,
+  author_email TEXT NOT NULL,
+  seller_id TEXT,
+  order_id TEXT,
+  topic TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS support_email ON support_tickets(author_email);
+
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL,
+  seller_id TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS invites (
+  id TEXT PRIMARY KEY,
+  listing_id TEXT NOT NULL REFERENCES listings(id),
+  seller_user_id TEXT,
+  recipient_email TEXT,
+  recipient_phone TEXT,
+  channel TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS invites_email ON invites(recipient_email);
+
+CREATE TABLE IF NOT EXISTS support_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id TEXT NOT NULL REFERENCES support_tickets(id),
+  author_role TEXT NOT NULL,
+  author_name TEXT,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 `);
 
 export const now = () => new Date().toISOString();
@@ -289,6 +342,316 @@ export function getDispute(id) {
 
 export const disputesForOrder = (orderId) =>
   db.prepare('SELECT id FROM disputes WHERE order_id = ? ORDER BY created_at DESC').all(orderId).map((r) => getDispute(r.id));
+
+const HELD = ['HELD', 'SHIPPED', 'INSPECTED', 'DISPUTED'];
+const RELEASED = ['RELEASED', 'RESOLVED_RELEASE', 'RESOLVED_PARTIAL'];
+
+export function listBuyerEmails() {
+  return db
+    .prepare(
+      `SELECT lower(buyer_email) AS email, MAX(buyer_name) AS name, COUNT(*) AS orders
+       FROM orders
+       WHERE buyer_email IS NOT NULL AND trim(buyer_email) != ''
+       GROUP BY lower(buyer_email)
+       ORDER BY MAX(created_at) DESC`,
+    )
+    .all();
+}
+
+const orderJoin = `
+  SELECT o.*, l.title AS listing_title, l.image_url, l.seller_id, s.name AS seller_name, s.email AS seller_email
+  FROM orders o
+  JOIN listings l ON l.id = o.listing_id
+  JOIN sellers s ON s.id = l.seller_id
+`;
+
+export function ordersForBuyer(email) {
+  return db.prepare(`${orderJoin} WHERE lower(o.buyer_email) = lower(?) ORDER BY o.updated_at DESC`).all(email);
+}
+
+export function ordersForSeller(sellerId) {
+  return db.prepare(`${orderJoin} WHERE l.seller_id = ? ORDER BY o.updated_at DESC`).all(sellerId);
+}
+
+function moneySum(rows, states, field) {
+  return rows.filter((o) => states.includes(o.state)).reduce((sum, o) => sum + Number(field(o) || 0), 0);
+}
+
+export function buyerDashboard(email) {
+  const orders = ordersForBuyer(email);
+  const tickets = listTickets({ email });
+  return {
+    buyer: { email, name: orders.find((o) => o.buyer_name)?.buyer_name || null },
+    orders,
+    invites: invitesForEmail(email),
+    tickets,
+    stats: {
+      orders: orders.length,
+      held: moneySum(orders, HELD, (o) => o.amount),
+      released: moneySum(orders, RELEASED, (o) => o.captured_amount ?? o.amount),
+      open_tickets: tickets.filter((t) => t.status !== 'resolved').length,
+    },
+  };
+}
+
+export function sellerDashboard(sellerId) {
+  const seller = getSeller(sellerId);
+  if (!seller) return null;
+  const orders = ordersForSeller(sellerId);
+  const listings = listListings().filter((l) => l.seller_id === sellerId);
+  const tickets = listTickets({ email: seller.email, sellerId });
+  return {
+    seller: { ...seller, verified: !!seller.verified, ...sellerHistory(sellerId) },
+    listings,
+    orders,
+    tickets,
+    stats: {
+      listings: listings.length,
+      orders: orders.length,
+      held: moneySum(orders, HELD, (o) => o.amount),
+      released: moneySum(orders, RELEASED, (o) => o.captured_amount ?? o.amount),
+      open_tickets: tickets.filter((t) => t.status !== 'resolved').length,
+    },
+  };
+}
+
+export function listTickets({ email, sellerId, openOnly } = {}) {
+  let rows = [];
+  if (email) {
+    rows.push(...db.prepare('SELECT * FROM support_tickets WHERE lower(author_email) = lower(?)').all(email));
+  }
+  if (sellerId) {
+    rows.push(...db.prepare('SELECT * FROM support_tickets WHERE seller_id = ?').all(sellerId));
+  }
+  if (!email && !sellerId) {
+    rows = db.prepare('SELECT * FROM support_tickets').all();
+  }
+  const seen = new Set();
+  return rows
+    .filter((t) => (seen.has(t.id) ? false : seen.add(t.id)))
+    .filter((t) => (openOnly ? t.status !== 'resolved' : true))
+    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
+}
+
+export function getTicket(id) {
+  const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(id);
+  if (!ticket) return null;
+  const messages = db.prepare('SELECT * FROM support_messages WHERE ticket_id = ? ORDER BY id').all(id);
+  return { ...ticket, messages };
+}
+
+export function insertTicket(t) {
+  const ts = now();
+  const row = {
+    id: newId('tkt'),
+    author_name: null,
+    seller_id: null,
+    order_id: null,
+    status: 'open',
+    created_at: ts,
+    updated_at: ts,
+    ...t,
+  };
+  db.prepare(
+    `INSERT INTO support_tickets
+      (id, author_role, author_name, author_email, seller_id, order_id, topic, subject, body, status, created_at, updated_at)
+     VALUES (@id, @author_role, @author_name, @author_email, @seller_id, @order_id, @topic, @subject, @body, @status, @created_at, @updated_at)`,
+  ).run(row);
+  return getTicket(row.id);
+}
+
+export function addTicketMessage(ticketId, { author_role, author_name, body }) {
+  const ts = now();
+  db.prepare(
+    'INSERT INTO support_messages (ticket_id, author_role, author_name, body, created_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(ticketId, author_role, author_name ?? null, body, ts);
+  const ticket = db.prepare('SELECT status FROM support_tickets WHERE id = ?').get(ticketId);
+  let status = ticket.status;
+  if (author_role === 'support' && status === 'open') status = 'in_review';
+  if (author_role !== 'support' && status === 'resolved') status = 'open';
+  db.prepare('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?').run(status, ts, ticketId);
+  return getTicket(ticketId);
+}
+
+export function setTicketStatus(id, status) {
+  db.prepare('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?').run(status, now(), id);
+  return getTicket(id);
+}
+
+export function auditCounts() {
+  const n = (sql) => db.prepare(sql).get().n;
+  return {
+    orders: n('SELECT COUNT(*) AS n FROM orders'),
+    events: n('SELECT COUNT(*) AS n FROM order_events'),
+    paypal_calls: n('SELECT COUNT(*) AS n FROM paypal_calls'),
+    disputes: n('SELECT COUNT(*) AS n FROM disputes'),
+    tickets: n('SELECT COUNT(*) AS n FROM support_tickets'),
+    tickets_open: n("SELECT COUNT(*) AS n FROM support_tickets WHERE status != 'resolved'"),
+    webhooks: n('SELECT COUNT(*) AS n FROM webhook_events'),
+  };
+}
+
+export function auditTrail(limit = 120) {
+  const clip = (s, n = 220) => (s && s.length > n ? `${s.slice(0, n)}…` : s || '');
+  const orders = db
+    .prepare(
+      `SELECT e.created_at AS at, e.actor, e.order_id, e.from_state, e.to_state, e.note, l.title
+       FROM order_events e
+       JOIN orders o ON o.id = e.order_id
+       JOIN listings l ON l.id = o.listing_id
+       ORDER BY e.id DESC LIMIT ?`,
+    )
+    .all(limit)
+    .map((e) => ({
+      at: e.at,
+      kind: 'order',
+      actor: e.actor,
+      summary: `${e.from_state ? `${e.from_state} → ` : ''}${e.to_state}${e.note ? ` · ${clip(e.note)}` : ''}`,
+      title: e.title,
+      ref: e.order_id,
+      href: `/o/${e.order_id}`,
+    }));
+  const paypal = db
+    .prepare('SELECT id, order_id, op, http_status, created_at FROM paypal_calls ORDER BY id DESC LIMIT ?')
+    .all(limit)
+    .map((c) => ({
+      at: c.created_at,
+      kind: 'paypal',
+      actor: 'paypal',
+      summary: `${c.op} · HTTP ${c.http_status ?? '—'}`,
+      title: c.order_id || 'PayPal',
+      ref: c.order_id,
+      href: c.order_id ? `/o/${c.order_id}` : null,
+    }));
+  const disputes = db
+    .prepare('SELECT id, order_id, status, decision, complaint, created_at, engine FROM disputes ORDER BY created_at DESC LIMIT ?')
+    .all(limit)
+    .map((d) => ({
+      at: d.created_at,
+      kind: 'dispute',
+      actor: d.engine || 'agent',
+      summary: `${d.status}${d.decision ? ` · ${d.decision}` : ''} · ${clip(d.complaint, 160)}`,
+      title: d.order_id,
+      ref: d.id,
+      href: `/o/${d.order_id}`,
+    }));
+  const tickets = db
+    .prepare('SELECT id, subject, status, topic, author_email, updated_at FROM support_tickets ORDER BY updated_at DESC LIMIT ?')
+    .all(limit)
+    .map((t) => ({
+      at: t.updated_at,
+      kind: 'support',
+      actor: t.author_email,
+      summary: `${t.status} · ${t.topic} · ${t.subject}`,
+      title: t.subject,
+      ref: t.id,
+      href: `/support/${t.id}`,
+    }));
+  const hooks = db
+    .prepare('SELECT id, event_type, verified, created_at FROM webhook_events ORDER BY created_at DESC LIMIT ?')
+    .all(limit)
+    .map((w) => ({
+      at: w.created_at,
+      kind: 'webhook',
+      actor: w.verified ? 'verified' : 'unverified',
+      summary: w.event_type || 'webhook',
+      title: w.id,
+      ref: w.id,
+      href: null,
+    }));
+  return [...orders, ...paypal, ...disputes, ...tickets, ...hooks]
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+    .slice(0, limit);
+}
+
+export function insertSeller({ name, email }) {
+  const row = { id: newId('sel'), name, email, verified: 0, prior_orders: 0, prior_disputes: 0, created_at: now() };
+  db.prepare(
+    `INSERT INTO sellers (id, name, email, verified, prior_orders, prior_disputes, created_at)
+     VALUES (@id, @name, @email, @verified, @prior_orders, @prior_disputes, @created_at)`,
+  ).run(row);
+  return getSeller(row.id);
+}
+
+const publicUser = (u) => (u ? { id: u.id, email: u.email, name: u.name, role: u.role, seller_id: u.seller_id } : null);
+
+export function getUser(id) {
+  return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+}
+
+export function getUserByEmail(email) {
+  return db.prepare('SELECT * FROM users WHERE email = ?').get(String(email || '').trim().toLowerCase()) || null;
+}
+
+export function insertUser({ email, name, password_hash, role, seller_id }) {
+  const row = {
+    id: newId('usr'),
+    email: String(email).trim().toLowerCase(),
+    name,
+    password_hash,
+    role,
+    seller_id: seller_id || null,
+    created_at: now(),
+  };
+  db.prepare(
+    `INSERT INTO users (id, email, name, password_hash, role, seller_id, created_at)
+     VALUES (@id, @email, @name, @password_hash, @role, @seller_id, @created_at)`,
+  ).run(row);
+  return getUser(row.id);
+}
+
+export function createSession(userId) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  const created_at = now();
+  const expires_at = new Date(Date.now() + 14 * 864e5).toISOString();
+  db.prepare('INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)').run(token, userId, expires_at, created_at);
+  return { token, expires_at };
+}
+
+export function userForToken(token) {
+  if (!token) return null;
+  const row = db.prepare(
+    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?`,
+  ).get(token, now());
+  return publicUser(row);
+}
+
+export function deleteSession(token) {
+  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+}
+
+export function insertInvite(i) {
+  const row = {
+    id: newId('inv'),
+    seller_user_id: null,
+    recipient_email: null,
+    recipient_phone: null,
+    created_at: now(),
+    ...i,
+    recipient_email: i.recipient_email ? String(i.recipient_email).trim().toLowerCase() : null,
+  };
+  db.prepare(
+    `INSERT INTO invites (id, listing_id, seller_user_id, recipient_email, recipient_phone, channel, created_at)
+     VALUES (@id, @listing_id, @seller_user_id, @recipient_email, @recipient_phone, @channel, @created_at)`,
+  ).run(row);
+  return getInvite(row.id);
+}
+
+const inviteJoin = `
+  SELECT i.id, i.listing_id, i.recipient_email, i.recipient_phone, i.channel, i.created_at,
+         l.title, l.description, l.price, l.currency, l.image_url, l.seller_id, s.name AS seller_name
+  FROM invites i
+  JOIN listings l ON l.id = i.listing_id
+  JOIN sellers s ON s.id = l.seller_id
+`;
+
+export function getInvite(id) {
+  return db.prepare(`${inviteJoin} WHERE i.id = ?`).get(id) || null;
+}
+
+export function invitesForEmail(email) {
+  return db.prepare(`${inviteJoin} WHERE lower(i.recipient_email) = lower(?) ORDER BY i.created_at DESC`).all(email);
+}
 
 export function recordWebhook(evt, verified) {
   db.prepare('INSERT OR IGNORE INTO webhook_events (id, event_type, verified, payload_json, created_at) VALUES (?, ?, ?, ?, ?)').run(

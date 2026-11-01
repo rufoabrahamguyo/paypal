@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funguo — Support</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="/theme.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/app.js"></script>
+</head>
+<body class="app">
+  <div id="boot" class="boot" role="status" aria-label="Loading Funguo">
+    <div class="boot-inner">
+      <div class="boot-mark">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0c1829"/><circle cx="12.5" cy="15" r="4.1" fill="none" stroke="#d4af37" stroke-width="1.8"/><path d="M16.2 15H24.2M20.6 15v3.1M24.2 15v2.2" fill="none" stroke="#d4af37" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <p class="boot-word">Funguo</p>
+      <p class="boot-sub">Escrow on PayPal</p>
+    </div>
+  </div>
+  <a class="skip" href="#main">Skip to content</a>
+  <div id="hdr"></div>
+  <main id="main" class="page">
+    <p class="eyebrow">Support</p>
+    <h1 class="page-title" id="title">Complaints</h1>
+    <p class="page-lead" id="lead">Tell us what went wrong with an order, a payment, or a listing. This is separate from the dispute agent, which only runs when a buyer disputes a delivery.</p>
+    <div id="board"><p class="meta" style="margin-top:18px">Loading…</p></div>
+  </main>
+<script>
+const { $, api, esc, when, persona, ticketBadge, toast, header } = F;
+const parts = location.pathname.split('/').filter(Boolean);
+const ticketId = parts[0] === 'support' && parts[1] ? parts[1] : '';
+const query = new URLSearchParams(location.search);
+
+function thread(t) {
+  const original = `<article class="bubble"><header><b>${esc(t.author_name || t.author_role)}</b><span>${when(t.created_at)}</span></header><p style="margin:0;white-space:pre-line">${esc(t.body)}</p></article>`;
+  const replies = (t.messages || []).map((m) => `<article class="bubble ${m.author_role === 'support' ? 'is-support' : ''}">
+    <header><b>${esc(m.author_name || m.author_role)}</b><span>${when(m.created_at)}</span></header>
+    <p style="margin:0;white-space:pre-line">${esc(m.body)}</p></article>`).join('');
+  return original + replies;
+}
+
+function showTicket(t) {
+  $('#title').textContent = t.subject;
+  $('#lead').textContent = `${t.topic} · ${t.author_email}${t.order_id ? ' · ' + t.order_id : ''}`;
+  $('#board').innerHTML = `
+    <p style="margin:14px 0"><a href="/support">All complaints</a> · ${ticketBadge(t.status)}</p>
+    <section class="card card-pad thread">${thread(t)}</section>
+    <form id="reply" class="card card-pad stack" style="margin-top:16px">
+      <h2>Add a reply</h2>
+      <p class="meta" style="margin:0">Replies use ${esc(t.author_email)}. Support answers are sent from the audit desk.</p>
+      <input type="hidden" name="author_email" value="${esc(t.author_email)}" />
+      <input type="hidden" name="author_role" value="${esc(t.author_role)}" />
+      <label class="lbl">Message
+        <textarea name="body" required rows="3" class="field" placeholder="Add what changed, or what you still need"></textarea>
+      </label>
+      <button class="btn btn-primary" type="submit">Send reply</button>
+    </form>`;
+  $('#reply').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+    try {
+      showTicket(await api(`/api/support/${t.id}/replies`, { json: Object.fromEntries(new FormData(e.target)) }));
+      toast('Reply sent', 'info');
+    } catch (err) { toast(err.message); btn.disabled = false; }
+  });
+}
+
+function desk(tickets, sellers) {
+  const role = query.get('role') === 'seller' ? 'seller' : 'buyer';
+  const seller = query.get('seller') || persona.sellerId();
+  $('#board').innerHTML = `
+    <div class="dash-grid" style="margin-top:18px">
+      <form id="ticket" class="card card-pad stack">
+        <h2>New complaint</h2>
+        <label class="lbl">I am
+          <select name="author_role" id="role" class="field">
+            <option value="buyer" ${role === 'buyer' ? 'selected' : ''}>A buyer</option>
+            <option value="seller" ${role === 'seller' ? 'selected' : ''}>A seller</option>
+          </select>
+        </label>
+        <label class="lbl" id="shopField">Shop
+          <select name="seller_id" id="shop" class="field">
+            ${sellers.map((s) => `<option value="${esc(s.id)}" ${s.id === seller ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="lbl">Name
+          <input name="author_name" class="field" value="${esc(persona.buyerName())}" placeholder="Your name" />
+        </label>
+        <label class="lbl">Email
+          <input name="author_email" type="email" required class="field" value="${esc(persona.buyerEmail())}" placeholder="you@email.com" />
+        </label>
+        <label class="lbl">Order id <span class="opt">optional</span>
+          <input name="order_id" class="field" value="${esc(query.get('order') || '')}" placeholder="ord_…" />
+        </label>
+        <label class="lbl">Topic
+          <select name="topic" class="field">
+            <option value="order">An order</option>
+            <option value="payment">A payment or hold</option>
+            <option value="listing">A listing</option>
+            <option value="account">My account</option>
+            <option value="other">Something else</option>
+          </select>
+        </label>
+        <label class="lbl">Subject
+          <input name="subject" required minlength="3" maxlength="140" class="field" placeholder="Short summary" />
+        </label>
+        <label class="lbl">What happened
+          <textarea name="body" required minlength="10" rows="4" class="field" placeholder="Include what you expected and what you got"></textarea>
+        </label>
+        <button class="btn btn-primary btn-block" type="submit">Submit complaint</button>
+      </form>
+      <section class="stack">
+        <h2 class="section-title">Your complaints</h2>
+        <div class="card" id="mine">${tickets.map((t) => `<a class="row-link cols-3" href="/support/${esc(t.id)}">
+          <span><b>${esc(t.subject)}</b><span class="meta">${esc(t.topic)}</span></span>
+          <span>${ticketBadge(t.status)}</span>
+          <span class="meta">${when(t.updated_at)}</span>
+        </a>`).join('') || '<p class="empty">None yet for the saved buyer email or seller shop.</p>'}</div>
+      </section>
+    </div>`;
+
+  const syncRole = () => { $('#shopField').hidden = $('#role').value !== 'seller'; };
+  $('#role').addEventListener('change', syncRole);
+  syncRole();
+  $('#ticket').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+    const payload = Object.fromEntries(new FormData(e.target));
+    if (payload.author_role !== 'seller') delete payload.seller_id;
+    try {
+      if (payload.author_role === 'buyer') persona.setBuyer(payload.author_email, payload.author_name);
+      if (payload.seller_id) persona.setSeller(payload.seller_id);
+      const ticket = await api('/api/support', { json: payload });
+      location.href = `/support/${ticket.id}`;
+    } catch (err) { toast(err.message); btn.disabled = false; }
+  });
+}
+
+header();
+(async () => {
+  if (ticketId) {
+    showTicket(await api(`/api/support/${ticketId}`));
+    return;
+  }
+  const sellers = await api('/api/sellers');
+  const params = new URLSearchParams();
+  if (persona.buyerEmail()) params.set('email', persona.buyerEmail());
+  if (persona.sellerId() || query.get('seller')) params.set('seller_id', query.get('seller') || persona.sellerId());
+  const tickets = params.toString() ? await api(`/api/support?${params}`) : [];
+  desk(tickets, sellers);
+})().catch((e) => {
+  toast(e.message);
+  $('#board').innerHTML = `<p class="callout callout-bad">${esc(e.message)}</p>`;
+});
+</script>
+</body>
+</html>

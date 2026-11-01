@@ -14,8 +14,9 @@ if (ifEmpty && hasData) {
 
 if (hasData) {
   console.log('[seed] resetting existing demo data');
-  db.exec(`DELETE FROM disputes; DELETE FROM paypal_calls; DELETE FROM order_events; DELETE FROM orders;
-           DELETE FROM listings; DELETE FROM sellers; DELETE FROM webhook_events;`);
+  db.exec(`DELETE FROM sessions; DELETE FROM invites; DELETE FROM support_messages; DELETE FROM support_tickets;
+           DELETE FROM disputes; DELETE FROM paypal_calls; DELETE FROM order_events; DELETE FROM orders;
+           DELETE FROM listings; DELETE FROM users; DELETE FROM sellers; DELETE FROM webhook_events;`);
 }
 
 const daysAgo = (n) => new Date(Date.now() - n * 864e5).toISOString();
