@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simulated PayPal approval</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="app">
+  <main class="approve">
+    <form method="post" class="card approve-card">
+      <div class="sim-bar" style="border-radius:8px">Simulated approval. This is not PayPal.</div>
+      <h1>Approve payment</h1>
+      <p>This page stands in for PayPal’s buyer approval because <code>PAYPAL_MODE=simulate</code>. With sandbox credentials you would sign in with a sandbox personal account here. Checkout pays the seller now. Pal-Lock only locks the money.</p>
+      <input type="hidden" name="token" id="token" />
+      <button class="btn btn-paypal" type="submit">Approve</button>
+    </form>
+  </main>
+  <script>document.getElementById('token').value = new URLSearchParams(location.search).get('token') || '';</script>
+</body>
+</html>

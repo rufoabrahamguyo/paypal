@@ -1,18 +1,19 @@
 {
   "name": "funguo",
   "version": "0.1.0",
-  "description": "AI-adjudicated escrow on PayPal Orders v2 authorize/capture/void",
+  "description": "Escrow on PayPal for social commerce and AI shopping agents, with a Claude dispute adjudicator",
   "type": "module",
-  "main": "src/server.js",
+  "main": "backend/server.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node scripts/seed.js --if-empty && node src/server.js",
-    "seed": "node scripts/seed.js",
-    "agent-buyer": "node scripts/agent-buyer.js",
-    "test:paypal": "node scripts/paypal-smoke.js"
+    "dev": "node --watch backend/server.js",
+    "start": "node backend/scripts/seed.js --if-empty && node backend/server.js",
+    "seed": "node backend/scripts/seed.js",
+    "agent-buyer": "node backend/scripts/agent-buyer.js",
+    "test:paypal": "node backend/scripts/paypal-smoke.js",
+    "mcp": "node backend/mcp.js"
   },
   "license": "MIT",
   "dependencies": {

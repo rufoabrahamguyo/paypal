@@ -1,0 +1,173 @@
+import { Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import multer from 'multer';
+import { config } from '../config.js';
+import { userFromRequest } from '../auth.js';
+import {
+  deleteSocial,
+  getSeller,
+  getSellerDocument,
+  getSocial,
+  IDENTITY_KINDS,
+  identityStatus,
+  markSocialVerified,
+  saveSellerDocument,
+  saveSocial,
+  setSellerPhoto,
+  socialsForSeller,
+} from '../db.js';
+import { cleanHandle, listPlatforms, PLATFORMS, profileHasCode } from '../socials.js';
+
+export const identity = Router();
+
+const UPLOADS = path.join(path.dirname(path.resolve(config.dbPath)), 'uploads');
+fs.mkdirSync(UPLOADS, { recursive: true });
+const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOADS,
+    filename: (req, file, cb) => cb(null, `seller-${req.userId}-${Date.now()}${IMAGE_TYPES[file.mimetype]}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    if (IMAGE_TYPES[file.mimetype]) return cb(null, true);
+    const err = new Error('Photo must be JPEG, PNG, WebP or GIF');
+    err.status = 400;
+    cb(err);
+  },
+});
+
+function sellerUser(req, res) {
+  const user = userFromRequest(req);
+  if (!user || user.role !== 'seller' || !user.seller_id) {
+    res.status(401).json({ error: 'Sign in as a seller' });
+    return null;
+  }
+  return user;
+}
+
+function insideUploads(file) {
+  const root = path.resolve(UPLOADS);
+  const abs = path.resolve(file);
+  return abs === root || abs.startsWith(root + path.sep);
+}
+
+identity.get('/social-platforms', (req, res) => {
+  res.json(listPlatforms());
+});
+
+identity.post('/seller/photo', (req, res, next) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  req.userId = user.seller_id.replace(/[^a-z0-9_-]/gi, '');
+  next();
+}, upload.single('photo'), (req, res) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  if (!req.file) return res.status(400).json({ error: 'Choose a photo' });
+  const previous = setSellerPhoto(user.seller_id, req.file.path, req.file.mimetype);
+  if (previous && previous !== req.file.path && insideUploads(previous)) fs.rmSync(previous, { force: true });
+  res.json({ photo_url: `/api/sellers/${user.seller_id}/photo` });
+});
+
+identity.get('/sellers/:id/photo', (req, res) => {
+  const seller = getSeller(req.params.id);
+  if (!seller?.photo_path || !fs.existsSync(seller.photo_path)) return res.sendStatus(404);
+  res.type(seller.photo_mime || 'application/octet-stream').sendFile(path.resolve(seller.photo_path));
+});
+
+identity.post('/seller/socials', (req, res) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  const platform = String(req.body?.platform || '');
+  if (!PLATFORMS[platform]) return res.status(400).json({ error: 'Choose TikTok, Instagram, Facebook, X, or YouTube' });
+  const handle = cleanHandle(req.body?.handle);
+  if (!handle) return res.status(400).json({ error: 'Enter the username from that account' });
+  saveSocial({ seller_id: user.seller_id, platform, handle });
+  res.status(201).json({ socials: socialsForSeller(user.seller_id, { codes: true }) });
+});
+
+identity.post('/seller/socials/:id/check', async (req, res) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  const row = getSocial(req.params.id);
+  if (!row || row.seller_id !== user.seller_id) return res.status(404).json({ error: 'That account was not found' });
+  if (row.status === 'verified') return res.json({ socials: socialsForSeller(user.seller_id, { codes: true }) });
+  let result;
+  try {
+    result = await profileHasCode(row.platform, row.handle, row.code);
+  } catch {
+    return res.status(502).json({ error: 'Could not open that profile. Leave the code public and try again.' });
+  }
+  if (!result.found) {
+    const error = result.blocked
+      ? 'That site did not show a public page, so the code could not be checked.'
+      : `Put ${row.code} in the bio or a public post, then check again.`;
+    return res.status(422).json({ error });
+  }
+  markSocialVerified(row.id);
+  res.json({ socials: socialsForSeller(user.seller_id, { codes: true }) });
+});
+
+identity.delete('/seller/socials/:id', (req, res) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  if (!deleteSocial(req.params.id, user.seller_id)) return res.status(404).json({ error: 'That account was not found' });
+  res.json({ socials: socialsForSeller(user.seller_id, { codes: true }) });
+});
+
+const idUpload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOADS,
+    filename: (req, file, cb) => cb(null, `id-${req.userId}-${file.fieldname}-${Date.now()}${IMAGE_TYPES[file.mimetype]}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024, files: 3 },
+  fileFilter: (req, file, cb) => {
+    if (IDENTITY_KINDS.includes(file.fieldname) && IMAGE_TYPES[file.mimetype]) return cb(null, true);
+    const err = new Error('Each photo must be JPEG, PNG, WebP or GIF');
+    err.status = 400;
+    cb(err);
+  },
+});
+
+function sendPrivateImage(res, filePath, mime) {
+  res.set('Cache-Control', 'private, no-store');
+  res.type(mime || 'application/octet-stream').sendFile(path.resolve(filePath));
+}
+
+identity.post('/seller/identity', (req, res, next) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  req.userId = user.seller_id.replace(/[^a-z0-9_-]/gi, '');
+  next();
+}, idUpload.fields(IDENTITY_KINDS.map((name) => ({ name, maxCount: 1 }))), (req, res) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  const files = req.files || {};
+  const saved = IDENTITY_KINDS.filter((kind) => files[kind]?.[0]);
+  if (!saved.length) return res.status(400).json({ error: 'Add the front of the ID, the back, and a photo of your face' });
+  for (const kind of saved) {
+    const file = files[kind][0];
+    const previous = saveSellerDocument(user.seller_id, kind, file.path, file.mimetype);
+    if (previous && previous !== file.path && insideUploads(previous)) fs.rmSync(previous, { force: true });
+  }
+  res.json({ identity: identityStatus(user.seller_id) });
+});
+
+identity.get('/seller/identity/:kind', (req, res) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  const doc = getSellerDocument(user.seller_id, req.params.kind);
+  if (!doc?.file_path || !fs.existsSync(doc.file_path)) return res.sendStatus(404);
+  sendPrivateImage(res, doc.file_path, doc.mime);
+});
+
+identity.get('/admin/sellers/:id/identity/:kind', (req, res) => {
+  const user = userFromRequest(req);
+  if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Sign in on the audit desk' });
+  const doc = getSellerDocument(req.params.id, req.params.kind);
+  if (!doc?.file_path || !fs.existsSync(doc.file_path)) return res.sendStatus(404);
+  sendPrivateImage(res, doc.file_path, doc.mime);
+});

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funguo — Pal-Lock for your app</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/app.js"></script>
+</head>
+<body class="app">
+  <div id="hdr"></div>
+  <main class="page" id="main">
+    <p class="eyebrow">For your app</p>
+    <h1 class="page-title">Pal-Lock, next to PayPal Checkout</h1>
+    <p class="page-lead">Your cart stays yours. You add two buttons. PayPal Checkout pays you now. Pal-Lock locks the same amount and tells your server when the money is held, released, or dropped. People who sell from TikTok or WhatsApp keep using the Funguo link. They do not need this API.</p>
+    <div class="split">
+      <div class="stack-lg">
+        <section class="card card-pad stack">
+          <h2>Call it the way you call PayPal</h2>
+          <p class="meta" style="margin:0">Send your API key as <code>Authorization: Bearer</code>. <code>option</code> is <code>checkout</code> or <code>pal_lock</code>. Send the buyer to <code>approval_url</code>. Funguo sends them back to <code>return_url</code> after PayPal, and posts the same news to your webhook.</p>
+          <code class="sample" id="sample">Loading the demo key…</code>
+          <p class="fine">The Abode key above is public so you can try the call. A key you create below is the one you would put on your server. Copy it. This page does not show it again.</p>
+          <a class="btn btn-navy" href="/shop">Open the sample cart</a>
+        </section>
+        <section class="card card-pad stack">
+          <h2>Create an app</h2>
+          <form id="create" class="stack">
+            <label class="lbl">App name<input name="name" required class="field" placeholder="My shop" /></label>
+            <label class="lbl">Webhook URL <span class="opt">optional</span><input name="webhook_url" class="field" placeholder="https://example.com/hooks/funguo" /></label>
+            <button class="btn btn-primary" type="submit">Create API key</button>
+          </form>
+          <div id="created"></div>
+        </section>
+      </div>
+      <section class="card card-pad stack">
+        <h2>What your server hears</h2>
+        <ul class="meta" style="margin:0;padding-left:18px;color:var(--ink)">
+          <li><b>payment.paid</b> PayPal Checkout captured. You already have the money.</li>
+          <li><b>payment.held</b> Pal-Lock placed the hold.</li>
+          <li><b>payment.released</b> The buyer confirmed, or you called capture.</li>
+          <li><b>payment.voided</b> The lock was dropped. The buyer was not charged.</li>
+          <li><b>payment.partial</b> A dispute captured only part of the hold.</li>
+        </ul>
+        <p class="meta">After a Pal-Lock is held, your server calls <code>POST /api/v1/payments/:id/capture</code> when the buyer confirms, or <code>POST /api/v1/payments/:id/void</code> to drop it.</p>
+        <div class="eyebrow">Latest from the sample shop</div>
+        <div id="events"><p class="meta">None yet.</p></div>
+      </section>
+    </div>
+  </main>
+<script>
+const { $, api, esc, toast, header } = F;
+
+function sample(key) {
+  return `curl -X POST ${location.origin}/api/v1/payments \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "option": "pal_lock",
+    "amount": 200,
+    "currency": "USD",
+    "description": "Modern Oak Cushion Chair",
+    "reference": "cart_91",
+    "return_url": "${location.origin}/shop/done",
+    "cancel_url": "${location.origin}/shop?cancelled=1"
+  }'`;
+}
+
+function events(list) {
+  $('#events').innerHTML = list.length
+    ? `<ul style="margin:0;padding-left:18px">${list.map((e) => `<li><b>${esc(e.type)}</b> <span class="meta">${esc(e.order_id)} · ${e.delivered ? 'delivered' : 'not delivered'}</span></li>`).join('')}</ul>`
+    : '<p class="meta">None yet. Pay from the sample cart and they show up here.</p>';
+}
+
+header().then(async () => {
+  const demo = await api('/api/apps/demo');
+  $('#sample').textContent = sample(demo.app.api_key);
+  const feed = await api('/api/apps/demo/events');
+  events(feed.events || []);
+});
+
+$('#create').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target));
+  try {
+    const v = await api('/api/apps', { json: body });
+    $('#created').innerHTML = `<div class="callout callout-ok"><b>${esc(v.app.name)}</b> key <code>${esc(v.app.api_key)}</code></div>`;
+    e.target.reset();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f1ddd2"/><stop offset="1" stop-color="#ddb7a3"/></linearGradient>
+    <linearGradient id="ti" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d8d3cb"/><stop offset=".5" stop-color="#b9b3a9"/><stop offset="1" stop-color="#8f897f"/></linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2d3a55"/><stop offset=".6" stop-color="#6b4f7a"/><stop offset="1" stop-color="#c87f6a"/></linearGradient>
+  </defs>
+  <rect width="640" height="480" fill="url(#bg)"/>
+  <g transform="translate(320 240) scale(0.8) translate(-320 -250)">
+  <ellipse cx="320" cy="350" rx="150" ry="11" fill="#000" opacity=".12"/>
+  <g transform="rotate(-8 270 255)">
+    <rect x="214" y="140" width="112" height="210" rx="20" fill="#9a9489"/>
+    <rect x="219" y="145" width="102" height="200" rx="16" fill="#111"/>
+    <rect x="224" y="150" width="92" height="190" rx="12" fill="url(#screen)"/>
+    <rect x="254" y="156" width="32" height="9" rx="4.5" fill="#111"/>
+  </g>
+  <g transform="rotate(10 380 255)">
+    <rect x="328" y="140" width="112" height="210" rx="20" fill="url(#ti)"/>
+    <rect x="340" y="152" width="50" height="50" rx="12" fill="#a39d93" stroke="#7d776d" stroke-width="2"/>
+    <circle cx="355" cy="167" r="9" fill="#1a1c20" stroke="#5a564f" stroke-width="2"/>
+    <circle cx="376" cy="178" r="9" fill="#1a1c20" stroke="#5a564f" stroke-width="2"/>
+    <circle cx="355" cy="189" r="9" fill="#1a1c20" stroke="#5a564f" stroke-width="2"/>
+    <circle cx="378" cy="161" r="3" fill="#efe6c8"/>
+  </g>
+  </g>
+</svg>

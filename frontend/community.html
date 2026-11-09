@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funguo — Community</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/app.js"></script>
+</head>
+<body class="app">
+  <div id="boot" class="boot" role="status" aria-label="Loading Funguo">
+    <div class="boot-inner">
+      <div class="boot-mark">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0c1829"/><circle cx="12.5" cy="15" r="4.1" fill="none" stroke="#d4af37" stroke-width="1.8"/><path d="M16.2 15H24.2M20.6 15v3.1M24.2 15v2.2" fill="none" stroke="#d4af37" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <p class="boot-word">Funguo</p>
+      <p class="boot-sub">Escrow on PayPal</p>
+    </div>
+  </div>
+  <a class="skip" href="#main">Skip to content</a>
+  <div id="hdr"></div>
+  <main id="main" class="page">
+    <p class="eyebrow">Community</p>
+    <h1 class="page-title">Check a shop before you pay</h1>
+    <p class="page-lead">Look up a TikTok, Instagram, Facebook, X, or YouTube account. Members report shops that took the money, sent the wrong item, or pushed payment off Funguo. A report is one person’s account of what happened.</p>
+    <div id="board"><p class="meta" style="margin-top:18px">Loading the list…</p></div>
+  </main>
+<script>
+const { $, api, esc, when, toast, header } = F;
+let me = null;
+let reasons = [];
+
+function reportCard(r) {
+  return `<article class="report">
+    <div class="flag-top"><b>${esc(r.reason_label)}</b><span class="meta">${when(r.created_at)} · a Funguo member</span></div>
+    <p>${esc(r.body)}</p>
+  </article>`;
+}
+
+function accountCard(a, open) {
+  const count = a.count ?? a.reports;
+  const n = typeof count === 'number' ? count : (a.reports?.length || 0);
+  const reports = Array.isArray(a.reports) ? a.reports : [];
+  return `<article class="card card-pad stack">
+    <div class="flag-top">
+      <h2 style="margin:0">${esc(a.label || 'Account')} · @${esc(a.handle)}</h2>
+      <span class="${n ? 'warn' : 'ok'}">${n ? `${n} report${n === 1 ? '' : 's'}` : 'No reports'}</span>
+    </div>
+    ${a.profile_url ? `<a class="social-link" href="${esc(a.profile_url)}" target="_blank" rel="noopener">${esc(a.profile_url)}</a>` : ''}
+    ${reports.length ? `<div class="flag-list">${reports.map(reportCard).join('')}</div>` : (n ? '' : '<p class="meta" style="margin:0">Nobody has reported this account yet. That is not a promise the shop is safe.</p>')}
+    ${open ? '' : `<a href="/community?platform=${encodeURIComponent(a.platform)}&handle=${encodeURIComponent(a.handle)}">Open the reports</a>`}
+  </article>`;
+}
+
+function render(data) {
+  const checked = data.checked;
+  let result = '';
+  if (checked?.platform) {
+    result = `<section class="stack section-gap"><h2 class="section-title">This account</h2>${accountCard(checked, true)}</section>`;
+  } else if (checked?.handle) {
+    const matches = checked.matches || [];
+    result = `<section class="stack section-gap"><h2 class="section-title">@${esc(checked.handle)}</h2>${
+      matches.length
+        ? matches.map((a) => accountCard({ ...a, count: a.reports }, false)).join('')
+        : '<div class="card"><p class="empty">No reports for that username. Pick the app it uses and you can file one.</p></div>'
+    }</section>`;
+  }
+  const reportForm = me
+    ? `<form id="report" class="card card-pad stack">
+        <h2>Report an account</h2>
+        <p class="meta" style="margin:0">Say what the shop did. Leave out phone numbers, home addresses, and photos of their ID.</p>
+        <div class="pair">
+          <label class="lbl">App
+            <select name="platform" class="field" required>
+              <option value="tiktok">TikTok</option>
+              <option value="instagram">Instagram</option>
+              <option value="facebook">Facebook</option>
+              <option value="x">X</option>
+              <option value="youtube">YouTube</option>
+            </select>
+          </label>
+          <label class="lbl">Username
+            <input name="handle" required class="field" placeholder="@shop or profile link" value="${esc(checked?.handle || '')}" />
+          </label>
+        </div>
+        <label class="lbl">What happened
+          <select name="reason" class="field" required>
+            ${reasons.map((r) => `<option value="${esc(r.id)}">${esc(r.label)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="lbl">What they did
+          <textarea name="body" required rows="4" class="field" placeholder="They asked for payment on WhatsApp, then stopped answering."></textarea>
+        </label>
+        <button class="btn btn-primary" type="submit">Post report</button>
+      </form>`
+    : `<section class="card card-pad stack">
+        <h2>Report an account</h2>
+        <p class="meta" style="margin:0">Sign in to post what a shop did. Your name is not shown on the report.</p>
+        <a class="btn btn-primary" href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Sign in to report</a>
+      </section>`;
+  const list = data.accounts || [];
+  $('#board').innerHTML = `
+    <form id="lookup" class="card card-pad stack">
+      <label class="lbl">Username or profile link
+        <input name="q" class="field" placeholder="@shopname or https://www.tiktok.com/@shopname" value="${esc(new URLSearchParams(location.search).get('q') || '')}" />
+      </label>
+      <button class="btn btn-navy" type="submit">Check this account</button>
+    </form>
+    ${result}
+    <div class="dash-grid section-gap">
+      ${reportForm}
+      <section class="stack">
+        <h2 class="section-title">Accounts with reports</h2>
+        ${list.length ? `<div class="flag-list">${list.map((a) => accountCard(a, false)).join('')}</div>` : '<div class="card"><p class="empty">No accounts have been reported yet.</p></div>'}
+      </section>
+    </div>`;
+  $('#lookup').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = new FormData(e.target).get('q').trim();
+    if (!q) return toast('Enter a username or a profile link');
+    location.href = `/community?q=${encodeURIComponent(q)}`;
+  });
+  $('#report')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+    const payload = Object.fromEntries(new FormData(e.target));
+    try {
+      const data = await api('/api/community', { json: payload });
+      toast('Report posted', 'info');
+      location.href = `/community?platform=${encodeURIComponent(data.account.platform)}&handle=${encodeURIComponent(data.account.handle)}`;
+    } catch (err) {
+      toast(err.message);
+      btn.disabled = false;
+    }
+  });
+  if (checked?.platform) {
+    const select = document.querySelector('#report select[name="platform"]');
+    if (select) select.value = checked.platform;
+  }
+}
+
+(async () => {
+  const session = await header();
+  me = session?.user || null;
+  const params = new URLSearchParams(location.search);
+  const q = new URLSearchParams();
+  if (params.get('platform')) q.set('platform', params.get('platform'));
+  if (params.get('handle')) q.set('handle', params.get('handle'));
+  if (params.get('q')) q.set('q', params.get('q'));
+  const data = await api(`/api/community${q.size ? `?${q}` : ''}`);
+  reasons = data.reasons || [];
+  render(data);
+})().catch((e) => toast(e.message));
+</script>
+</body>
+</html>

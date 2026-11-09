@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#dfe5ee"/><stop offset="1" stop-color="#b8c4d6"/></linearGradient>
+    <linearGradient id="leather" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9a5f3a"/><stop offset=".55" stop-color="#7a4527"/><stop offset="1" stop-color="#55301b"/></linearGradient>
+  </defs>
+  <rect width="640" height="480" fill="url(#bg)"/>
+  <g transform="translate(320 240) scale(0.8) translate(-320 -250)">
+  <ellipse cx="320" cy="350" rx="150" ry="11" fill="#000" opacity=".12"/>
+  <path d="M276 150 L250 158 L206 196 L184 330 L222 336 L238 236 L246 340 L394 340 L402 236 L418 336 L456 330 L434 196 L390 158 L364 150 L320 176 Z" fill="url(#leather)"/>
+  <path d="M276 150 L300 214 L320 176 Z" fill="#6a3b21"/>
+  <path d="M364 150 L340 214 L320 176 Z" fill="#6a3b21"/>
+  <path d="M276 150 L258 196 L300 214 Z" fill="#8a5232"/>
+  <path d="M364 150 L382 196 L340 214 Z" fill="#8a5232"/>
+  <line x1="320" y1="182" x2="320" y2="340" stroke="#3b2414" stroke-width="3"/>
+  <line x1="320" y1="182" x2="320" y2="340" stroke="#c9a76a" stroke-width="1" stroke-dasharray="3 3"/>
+  <rect x="262" y="262" width="36" height="5" rx="2" fill="#4a2a17"/>
+  <rect x="342" y="262" width="36" height="5" rx="2" fill="#4a2a17"/>
+  <path d="M246 330 h148" stroke="#4a2a17" stroke-width="6"/>
+  <path d="M188 318 l34 5" stroke="#4a2a17" stroke-width="6"/>
+  <path d="M452 318 l-34 5" stroke="#4a2a17" stroke-width="6"/>
+  <path d="M232 200 C240 230 236 260 240 300" stroke="#b37a52" stroke-width="2" fill="none" opacity=".5"/>
+  </g>
+</svg>
