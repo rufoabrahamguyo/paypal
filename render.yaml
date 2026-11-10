@@ -5,7 +5,8 @@ services:
     name: funguo
     runtime: node
     plan: free
-    buildCommand: npm ci
+    # Installs dependencies (including Vite) and builds the React app into web/dist.
+    buildCommand: npm ci --include=dev && npm run build
     # Seeds demo data when the database is empty, then starts the server.
     startCommand: npm start
     healthCheckPath: /api/health

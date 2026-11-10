@@ -31,11 +31,17 @@ export function userFromRequest(req) {
   return userForToken(readCookie(req));
 }
 
+function appendCookie(res, line) {
+  const existing = res.getHeader('Set-Cookie');
+  if (!existing) res.setHeader('Set-Cookie', line);
+  else res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, line] : [existing, line]);
+}
+
 export function startSession(res, userId, secure) {
   const { token } = createSession(userId);
   const flags = [`${COOKIE}=${encodeURIComponent(token)}`, 'HttpOnly', 'Path=/', 'SameSite=Lax', `Max-Age=${14 * 86400}`];
   if (secure) flags.push('Secure');
-  res.setHeader('Set-Cookie', flags.join('; '));
+  appendCookie(res, flags.join('; '));
 }
 
 export function endSession(req, res) {

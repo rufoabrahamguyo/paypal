@@ -1,8 +1,9 @@
 import express from 'express';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, assertPayPalConfig, isSimulated } from './config.js';
-import { db, getOrder, getUserByEmail, insertUser, ensureDemoApp } from './db.js';
+import { db, getOrder, getSeller, getUserByEmail, insertUser, ensureDemoApp } from './db.js';
 import * as escrow from './escrow.js';
 import * as sim from './paypalSim.js';
 import { listings } from './routes/listings.js';
@@ -26,11 +27,13 @@ try {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const pub = path.join(here, '..', 'frontend');
+const pub = path.join(here, '..', 'web', 'dist');
+const built = fs.existsSync(path.join(pub, 'index.html'));
+if (!built) console.warn('[funguo] web/dist is missing: run `npm run build`, or use `npm run dev` and open http://localhost:5180');
 const app = express();
 app.set('trust proxy', true);
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(pub));
+app.use(express.static(pub, { index: false }));
 
 // ---- JSON API (used by the UI and by autonomous buyer agents) ----------------
 app.get('/api/health', (req, res) =>
@@ -79,7 +82,7 @@ app.get('/paypal/return', async (req, res) => {
 app.get('/paypal/cancel', (req, res) => {
   const o = getOrder(String(req.query.order));
   if (o?.cancel_url) return res.redirect(withParams(o.cancel_url, { payment: o.id, cancelled: '1' }));
-  res.redirect(o?.listing_id && o.listing_id !== 'lst_apps' ? `/l/${o.listing_id}?cancelled=1` : '/');
+  res.redirect(o?.listing_id && o.listing_id !== 'lst_apps' ? `/checkout/${o.listing_id}?cancelled=1` : '/');
 });
 
 // Simulated PayPal approval page (PAYPAL_MODE=simulate only).
@@ -96,34 +99,62 @@ app.post('/sim/paypal/approve', express.urlencoded({ extended: false }), (req, r
 });
 
 // ---- pages ------------------------------------------------------------------------
-app.get('/l/:id', (req, res) => res.sendFile(path.join(pub, 'listing.html')));
-app.get(['/shop', '/shop/done'], (req, res) => res.sendFile(path.join(pub, 'shop.html')));
-app.get('/developers', (req, res) => res.sendFile(path.join(pub, 'developers.html')));
-app.get('/o/:id', (req, res) => res.sendFile(path.join(pub, 'order.html')));
-app.get('/market', (req, res) => res.sendFile(path.join(pub, 'market.html')));
-app.get('/community', (req, res) => res.sendFile(path.join(pub, 'community.html')));
-app.get('/login', (req, res) => res.sendFile(path.join(pub, 'login.html')));
-app.get('/signup', (req, res) => res.sendFile(path.join(pub, 'signup.html')));
-app.get('/i/:id', (req, res) => res.sendFile(path.join(pub, 'invite.html')));
+// The UI is a React app (web/, built to web/dist). Every page URL serves its
+// index.html and React Router picks the screen. The access rules below run on the
+// server first, so a full page load never shows a screen the user may not see.
+const spa = (req, res) => (built
+  ? res.sendFile(path.join(pub, 'index.html'))
+  : res.status(503).type('text').send('The web app is not built. Run `npm run build`, or open the dev server on http://localhost:5180.'));
+const safeNext = (next) => (typeof next === 'string' && next.startsWith('/') && !next.startsWith('//') ? next : '');
+const toLogin = (req, res) => res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
 
-function requireRole(role, file) {
+// The landing page is for visitors. A signed-in user goes straight to their dashboard,
+// and so does anyone who opens the sign-in or sign-up page while already signed in.
+app.get('/', (req, res) => {
+  const user = userFromRequest(req);
+  if (user) return res.redirect(dashboardPath(user.role));
+  spa(req, res);
+});
+app.get(['/login', '/signup'], (req, res) => {
+  const user = userFromRequest(req);
+  if (user) return res.redirect(safeNext(req.query.next) || dashboardPath(user.role));
+  spa(req, res);
+});
+
+app.get('/developers', (req, res) => res.redirect(301, '/developer'));
+app.get(['/developer/dashboard', '/developer/apps/:id', '/support', '/support/:id'], (req, res) => {
+  if (!userFromRequest(req)) return toLogin(req, res);
+  spa(req, res);
+});
+
+function requireRole(role) {
   return (req, res) => {
     const user = userFromRequest(req);
-    if (!user) return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+    if (!user) return toLogin(req, res);
     if (user.role !== role) return res.redirect(dashboardPath(user.role));
-    res.sendFile(path.join(pub, file));
+    spa(req, res);
   };
 }
-app.get('/buyer', requireRole('buyer', 'buyer.html'));
-app.get('/seller', requireRole('seller', 'seller.html'));
-app.get('/admin', requireRole('admin', 'admin.html'));
-app.get(['/support', '/support/:id'], (req, res) => {
-  if (!userFromRequest(req)) return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
-  res.sendFile(path.join(pub, 'support.html'));
-});
+app.get(['/buyer', '/buyer/orders'], requireRole('buyer'));
+app.get('/admin', requireRole('admin'));
+
+// A seller reaches the dashboard only after their National ID is verified.
+const sellerVerified = (user) => getSeller(user.seller_id)?.kyc_status === 'verified';
+app.get(['/seller', '/seller/orders', '/seller/listings', '/seller/verification'], (req, res, next) => {
+  const user = userFromRequest(req);
+  if (user?.role === 'seller' && !sellerVerified(user)) return res.redirect('/seller/onboarding');
+  next();
+}, requireRole('seller'));
+app.get('/seller/onboarding', (req, res, next) => {
+  const user = userFromRequest(req);
+  if (user?.role === 'seller' && sellerVerified(user)) return res.redirect('/seller');
+  next();
+}, requireRole('seller'));
 
 // ---- errors -------------------------------------------------------------------------
 app.use('/api', (req, res) => res.status(404).json({ error: `No route ${req.method} ${req.originalUrl}` }));
+// Every other page (market, listings, orders, developer docs…) is a public React route.
+app.get('/{*path}', spa);
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   const status = err.name === 'MulterError' ? 400 : err.status && err.status < 600 ? err.status : 500;

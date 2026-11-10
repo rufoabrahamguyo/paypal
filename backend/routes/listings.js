@@ -1,16 +1,31 @@
 import { Router } from 'express';
 import { config } from '../config.js';
-import { db, getListing, listListings, getSeller, getUserBySellerId, insertListing, listSellers, sellerHistory } from '../db.js';
+import { db, getListing, listListings, getSeller, getUserBySellerId, insertListing, listSellers, reviewsForSeller, sellerHistory } from '../db.js';
 import { verifyListing } from '../verification.js';
 
 export const listings = Router();
 
 const withLinks = (l) => l && { ...l, checkout_url: `${config.baseUrl}/l/${l.id}`, seller: sellerHistory(l.seller_id) };
 
-listings.get('/sellers', (req, res) => res.json(listSellers().map((s) => {
-  const { photo_path, photo_mime, ...rest } = s;
-  return { ...rest, ...sellerHistory(s.id) };
-})));
+// Public seller directory. `q` matches the shop name or a checked social handle.
+listings.get('/sellers', (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase().replace(/^@/, '');
+  const rows = listSellers().map((s) => ({ id: s.id, created_at: s.created_at, ...sellerHistory(s.id) }));
+  res.json(q
+    ? rows.filter((s) => s.name.toLowerCase().includes(q) || s.socials.some((a) => a.handle.toLowerCase().includes(q)))
+    : rows);
+});
+
+// What a buyer checks before deciding to trust a shop.
+listings.get('/sellers/:id/profile', (req, res) => {
+  const s = getSeller(req.params.id);
+  if (!s || s.id === 'sel_apps') return res.status(404).json({ error: 'Seller not found' });
+  res.json({
+    seller: { id: s.id, ...sellerHistory(s.id) },
+    reviews: reviewsForSeller(s.id),
+    listings: listListings().filter((l) => l.seller_id === s.id).map(withLinks),
+  });
+});
 
 listings.get('/listings', (req, res) => res.json(listListings().map(withLinks)));
 
@@ -22,7 +37,9 @@ listings.get('/listings/:id', (req, res) => {
 
 listings.post('/listings', async (req, res) => {
   const { seller_id, title, description, price, image_url } = req.body ?? {};
-  if (!getSeller(seller_id)) return res.status(400).json({ error: 'Unknown seller_id' });
+  const seller = getSeller(seller_id);
+  if (!seller) return res.status(400).json({ error: 'Unknown seller_id' });
+  if (seller.kyc_status !== 'verified') return res.status(403).json({ error: 'Verify your identity before requesting payments', onboarding_url: '/seller/onboarding' });
   const p = Number(price);
   if (!title || !description || !(p > 0) || p > 10_000_000) {
     return res.status(400).json({ error: 'Enter a title, a description, and a price above 0' });

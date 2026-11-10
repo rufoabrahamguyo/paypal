@@ -5,12 +5,13 @@
 //                         \-> VOIDED
 //                         \________\__________\______-> DISPUTED -> RESOLVED_*
 //   Checkout:  INITIATED -> PAID
+import crypto from 'node:crypto';
 import { config } from './config.js';
 import { paypalCharge } from './countries.js';
 import * as paypal from './paypal.js';
 import {
   getOrder, getListing, getSeller, getApp, insertOrder, updateOrder, recordTransition, recordNote, orderEvents, paypalCalls,
-  disputesForOrder, sellerHistory, externalListingId, insertAppEvent, holdsDueForReauthorization,
+  disputesForOrder, sellerHistory, externalListingId, insertAppEvent, holdsDueForReauthorization, reviewForOrder,
 } from './db.js';
 
 export const TRANSITIONS = {
@@ -96,24 +97,38 @@ export function paymentPublic(order) {
   };
 }
 
+// Stripe-style signature: HMAC-SHA256 of `${t}.${body}` with the app's webhook secret.
+export function signWebhook(secret, body, t = Math.floor(Date.now() / 1000)) {
+  const v1 = crypto.createHmac('sha256', secret).update(`${t}.${body}`).digest('hex');
+  return `t=${t},v1=${v1}`;
+}
+
+export async function deliverWebhook(app, type, payload) {
+  if (!app?.webhook_url) return { delivered: false, status: null, error: 'No webhook URL' };
+  const body = JSON.stringify(payload);
+  try {
+    const res = await fetch(app.webhook_url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Funguo-Event': type,
+        'Funguo-Signature': signWebhook(app.webhook_secret, body),
+      },
+      body,
+      signal: AbortSignal.timeout(4000),
+    });
+    return { delivered: res.ok, status: res.status };
+  } catch (e) {
+    console.error(`[funguo] webhook ${type} failed: ${e.message}`);
+    return { delivered: false, status: null, error: e.message };
+  }
+}
+
 async function notify(order, type) {
   if (!order?.app_id) return;
   const app = getApp(order.app_id);
   const payload = { type, created_at: new Date().toISOString(), payment: paymentPublic(order) };
-  let delivered = false;
-  if (app?.webhook_url) {
-    try {
-      const res = await fetch(app.webhook_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Funguo-Event': type },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(4000),
-      });
-      delivered = res.ok;
-    } catch (e) {
-      console.error(`[funguo] webhook ${type} failed: ${e.message}`);
-    }
-  }
+  const { delivered } = await deliverWebhook(app, type, payload);
   insertAppEvent({ appId: order.app_id, orderId: order.id, type, payload, delivered });
 }
 
@@ -415,6 +430,8 @@ export async function reauthorizeDueHolds() {
 
 // ---- read model -----------------------------------------------------------------
 
+const SETTLED_STATES = new Set(['RELEASED', 'PAID', 'VOIDED', 'RESOLVED_RELEASE', 'RESOLVED_PARTIAL', 'RESOLVED_REFUND']);
+
 export function allowedActions(order) {
   const next = TRANSITIONS[order.state] ?? [];
   const a = [];
@@ -446,13 +463,16 @@ export function orderView(orderId) {
         app: true,
       }
     : { ...sellerHistory(listing.seller_id), email: getSeller(listing.seller_id).email, app: false };
+  const review = reviewForOrder(orderId);
   const shown = order.description
     ? { ...listing, title: order.description, description: order.description, price: order.amount, currency: order.currency }
     : listing;
   return {
-    order: (({ packing_photo_path, packing_photo_mime, ...o }) => ({
+    order: (({ packing_photo_path, packing_photo_mime, inspection_photo_path, inspection_photo_mime, ...o }) => ({
       ...o,
       has_packing_photo: !!packing_photo_path,
+      has_inspection_photo: !!inspection_photo_path,
+      settled: SETTLED_STATES.has(o.state),
       guaranteed_until: o.authorized_at && HELD_STATES.has(o.state)
         ? new Date(Date.parse(o.authorized_at) + honorMs()).toISOString()
         : null,
@@ -460,6 +480,9 @@ export function orderView(orderId) {
     }))(order),
     listing: shown,
     seller,
+    // The last two steps of every transaction: a receipt, then the buyer's rating.
+    review: review && (({ buyer_email, ...r }) => r)(review),
+    completed: SETTLED_STATES.has(order.state) && !!review,
     events: orderEvents(orderId),
     paypal_calls: paypalCalls(orderId),
     disputes: disputesForOrder(orderId).map(({ transcript, ...d }) => ({

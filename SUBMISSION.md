@@ -29,7 +29,7 @@ Funguo (Swahili for "key") puts the money in the middle.
 
 ### How we built it
 
-- **Node.js + Express + SQLite**, plain HTML front end.
+- **Node.js + Express + SQLite** API, with a **React** front end (Vite, React Router) served by the same Express server.
 - **PayPal REST APIs**, called directly: OAuth client credentials, Orders v2 (`AUTHORIZE` and `CAPTURE` intents, approval redirect or inline sandbox card), Payments v2 authorization capture (full and partial with `final_capture`), void and reauthorize, webhook signature verification. Every mutating call carries a deterministic `PayPal-Request-Id`, so retries never double-charge.
 - **Claude (`claude-opus-5-5`)** for both agents: vision for the photos, adaptive thinking, strict tool schemas, and server-side refusal fallback. The adjudicator's transcript is saved after every turn, so the order page shows its reasoning and tool calls live.
 - **Channel3** for market reference prices, **Elastic** kNN for scam-pattern search, **AG Grid** for the decisions ledger, **Render** for hosting, and the **Model Context Protocol** for agent access.
@@ -102,7 +102,7 @@ Before the final take, run the `damaged` scenario once so the ledger shows a par
 
 ## Pre-submission checklist
 
-- [ ] `git add -A && git commit` (the restructure to `backend/` + `frontend/` is still uncommitted) and push
+- [ ] `git add -A && git commit` (the React front end in `web/` is still uncommitted) and push
 - [ ] GitHub repo is public, and **MIT** shows in the About sidebar (the `LICENSE` file is present)
 - [ ] `.env` is **not** committed (`git ls-files | grep -x .env` prints nothing)
 - [ ] Deployed on Render with `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`, `ANTHROPIC_API_KEY` (plus `CHANNEL3_API_KEY` and the Elastic keys if you have them)

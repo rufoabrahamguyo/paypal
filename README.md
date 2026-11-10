@@ -16,12 +16,13 @@ Funguo puts the money in the middle. The buyer, whether a person or an AI agent,
 |---|---|---|
 | **Watch an AI agent shop, inspect and dispute** | `npm run agent-buyer` | Claude buys headphones into a PayPal hold, looks at a photo of the wrong item that arrived, opens a dispute, and a second Claude agent voids the hold |
 | **Watch the adjudicator think** | the order page `/o/<id>` while a dispute runs | Live steps: reasoning, Channel3 price check, Elastic scam search, decision, PayPal call |
-| **Pay as a human** | `/market` → Sony WH-1000XM5 → **Pay with PayPal** | Real sandbox approval redirect → authorization hold → ship → confirm → capture |
-| **Dispute as a human** | the order page → **open a dispute**, upload [`wrong-item.png`](backend/scripts/fixtures/wrong-item.png) | Full refund by void; try [`scuffed-item.png`](backend/scripts/fixtures/scuffed-item.png) for a partial |
+| **Sell as a human** | `/signup?role=seller` → National ID onboarding → dashboard | A seller reaches the dashboard only after identity checks pass; the audit desk can send them back to fix an issue |
+| **Pay as a human** | buyer dashboard → find a seller or paste their link → seller profile and reviews → product → `/checkout/:id` → **Pay with PayPal** | Real sandbox approval redirect → authorization hold → seller ships → buyer says it arrived → photo of the item → confirm → capture → digital receipt → rating → completed |
+| **Dispute as a human** | the order page → photograph the item ([`wrong-item.png`](backend/scripts/fixtures/wrong-item.png)) → **No, open a dispute** | The photo is attached as evidence; full refund by void. Try [`scuffed-item.png`](backend/scripts/fixtures/scuffed-item.png) for a partial |
 | **Hear the seller's side** | `npm run agent-buyer -- --packing` | The seller attached a packing photo at shipping; the adjudicator has to weigh it against the buyer's photo |
 | **Audit every AI decision** | `/admin` (login `admin@funguo.test` / `funguo-demo`) | AG Grid ledger: decision, confidence, guardrail, the agent's original proposal, PayPal ids |
 | **Let your own Claude shop** | `npm run mcp` (see [MCP server](#mcp-server)) | Claude Desktop or Claude Code buys through Funguo escrow using its own tools |
-| **Add escrow to an existing cart** | `/shop` and `/developers` | A sample store calling the Pal-Lock API with an API key and a webhook |
+| **Add escrow to an existing cart** | `/shop` and the developer portal at `/developer` | A sample store calling the Pal-Lock API; docs at `/developer/docs`, your own keys, signed webhooks and an event log at `/developer/dashboard` |
 
 ---
 
@@ -69,8 +70,17 @@ git clone https://github.com/rufoabrahamguyo/paypal.git funguo && cd funguo
 npm install
 cp .env.example .env        # then fill in the keys below
 npm run seed                # demo sellers, listings, scam-pattern index
-npm run dev                 # http://localhost:3000
+npm run dev                 # http://localhost:5180 (React with hot reload; API on :3000)
 ```
+
+For a production-style run, build the React app once and let Express serve it:
+
+```bash
+npm run build               # web/ -> web/dist
+npm start                   # http://localhost:3000
+```
+
+In `npm run dev`, Vite serves the UI on port 5180 and forwards `/api`, `/paypal` and `/sim` to Express on port 3000. `BASE_URL` is set to the Vite address, so PayPal sends the buyer back to the dev server.
 
 ### Keys
 
@@ -141,7 +151,7 @@ Plain JSON over HTTP. The marketplace endpoints have no auth in the demo (see [W
 
 ### Pal-Lock for your own app
 
-Create an app (`POST /api/apps {name, webhook_url}`, or use the demo app on `/developers`), then call with `Authorization: Bearer <api_key>`:
+Sign in and create an app at `/developer/dashboard` (Apps & Credentials), or use the public sandbox key of the demo app shown on `/developer`. Then call with `Authorization: Bearer <secret key>`. Full reference: `/developer/docs`.
 
 | Method & path | What it does |
 |---|---|
@@ -150,7 +160,7 @@ Create an app (`POST /api/apps {name, webhook_url}`, or use the demo app on `/de
 | `POST /api/v1/payments/:id/capture` | Release a Pal-Lock hold |
 | `POST /api/v1/payments/:id/void` | Cancel a Pal-Lock hold |
 
-Your webhook receives each state change. [`/shop`](frontend/shop.html) is a sample store (Abode) wired this way.
+Your webhook receives each state change, signed with the app's `whsec_` secret in a `Funguo-Signature: t=…,v1=…` header (HMAC-SHA256 of `t.body`). [`/shop`](web/src/pages/Shop.jsx) is a sample store (Abode) wired this way.
 
 ## Order state machine
 
@@ -169,7 +179,7 @@ Every transition is written to `order_events` with a timestamp, the actor (buyer
 ```mermaid
 flowchart LR
   subgraph Clients
-    UI[Web UI<br/>frontend/*.html]
+    UI[React app<br/>web/src]
     BA[Claude buyer agent<br/>scripts/agent-buyer.js]
     MCP[Any MCP client<br/>via backend/mcp.js]
     APP[Merchant app<br/>Pal-Lock API]
@@ -259,7 +269,11 @@ backend/
                      auth, identity, community, dashboard, webhooks
   data/              seeded scam corpus + reference catalog
   scripts/           seed, Claude buyer agent, PayPal smoke check, photo fixtures
-frontend/            UI (plain HTML + Tailwind CDN, AG Grid on the admin page)
+web/                 React UI (Vite + React Router), built to web/dist and served by Express
+  src/pages/         one component per screen; developer/ is the developer portal
+  src/components/    layout (sidebar, top menu, developer header), shared UI
+  src/lib/           API client, session, toasts, formatting
+  public/            styles.css, images, the simulated PayPal approval page
 ```
 
 ## License

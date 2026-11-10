@@ -11,12 +11,15 @@ import {
   getSocial,
   IDENTITY_KINDS,
   identityStatus,
+  kycFor,
+  setKyc,
   markSocialVerified,
   saveSellerDocument,
   saveSocial,
   setSellerPhoto,
   socialsForSeller,
 } from '../db.js';
+import { verifyIdentity } from '../kyc.js';
 import { cleanHandle, listPlatforms, PLATFORMS, profileHasCode } from '../socials.js';
 
 export const identity = Router();
@@ -147,13 +150,32 @@ identity.post('/seller/identity', (req, res, next) => {
   if (!user) return;
   const files = req.files || {};
   const saved = IDENTITY_KINDS.filter((kind) => files[kind]?.[0]);
-  if (!saved.length) return res.status(400).json({ error: 'Add the front of the ID, the back, and a photo of your face' });
+  const number = String(req.body?.national_id_number || '').trim();
+  if (!saved.length && !number) return res.status(400).json({ error: 'Add your National ID number, the front and back of the ID, and a photo of your face' });
   for (const kind of saved) {
     const file = files[kind][0];
     const previous = saveSellerDocument(user.seller_id, kind, file.path, file.mimetype);
     if (previous && previous !== file.path && insideUploads(previous)) fs.rmSync(previous, { force: true });
   }
-  res.json({ identity: identityStatus(user.seller_id) });
+  const kyc = verifyIdentity(user.seller_id, number);
+  res.json({ identity: identityStatus(user.seller_id), kyc });
+});
+
+identity.get('/seller/kyc', (req, res) => {
+  const user = sellerUser(req, res);
+  if (!user) return;
+  res.json({ kyc: kycFor(user.seller_id) });
+});
+
+// The audit desk confirms a seller or sends them back with what to fix.
+identity.post('/admin/sellers/:id/kyc', (req, res) => {
+  const user = userFromRequest(req);
+  if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Sign in on the audit desk' });
+  if (!getSeller(req.params.id)) return res.status(404).json({ error: 'Seller not found' });
+  const status = req.body?.status === 'verified' ? 'verified' : 'rejected';
+  const note = String(req.body?.note || '').trim().slice(0, 500);
+  if (status === 'rejected' && !note) return res.status(400).json({ error: 'Tell the seller what to fix' });
+  res.json({ kyc: setKyc(req.params.id, { status, note: note || null }) });
 });
 
 identity.get('/seller/identity/:kind', (req, res) => {

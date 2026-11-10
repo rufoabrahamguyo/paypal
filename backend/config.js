@@ -10,6 +10,8 @@ export const config = {
   port,
   baseUrl: (env('BASE_URL') || env('RENDER_EXTERNAL_URL') || `http://localhost:${port}`).replace(/\/$/, ''),
   dbPath: env('DB_PATH', './data/funguo.db'),
+  // Keys the HMAC that stores National ID numbers, so a duplicate can be found without keeping the number.
+  kycSecret: env('KYC_SECRET', 'funguo-dev-kyc'),
   platformFeeBps: Number(env('PLATFORM_FEE_BPS', '250')),
   // PayPal guarantees authorized funds for ~3 days; after that, wallet holds are reauthorized.
   honorPeriodHours: Number(env('HONOR_PERIOD_HOURS', '72')),
@@ -30,6 +32,12 @@ export const config = {
   },
 
   channel3: { apiKey: env('CHANNEL3_API_KEY') },
+
+  // Web OAuth client from Google Cloud. Empty until both values are set.
+  google: {
+    clientId: env('GOOGLE_CLIENT_ID'),
+    clientSecret: env('GOOGLE_CLIENT_SECRET'),
+  },
 
   elastic: {
     url: env('ELASTIC_URL').replace(/\/$/, ''),

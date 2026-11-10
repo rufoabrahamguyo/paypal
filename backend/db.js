@@ -215,6 +215,19 @@ CREATE TABLE IF NOT EXISTS app_events (
 CREATE INDEX IF NOT EXISTS app_events_order ON app_events(order_id);
 CREATE INDEX IF NOT EXISTS app_events_app ON app_events(app_id);
 
+CREATE TABLE IF NOT EXISTS reviews (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL UNIQUE REFERENCES orders(id),
+  seller_id TEXT NOT NULL REFERENCES sellers(id),
+  buyer_name TEXT,
+  buyer_email TEXT,
+  seller_rating INTEGER NOT NULL,           -- 1..5, the seller and the item
+  service_rating INTEGER NOT NULL,          -- 1..5, Funguo escrow and dispute handling
+  comment TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS reviews_seller ON reviews(seller_id);
+
 CREATE TABLE IF NOT EXISTS support_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id TEXT NOT NULL REFERENCES support_tickets(id),
@@ -243,6 +256,18 @@ addColumn('orders', 'reauthorized_at', 'TEXT');
 addColumn('orders', 'description', 'TEXT');
 addColumn('orders', 'return_url', 'TEXT');
 addColumn('orders', 'cancel_url', 'TEXT');
+addColumn('apps', 'owner_user_id', 'TEXT');
+// Seller identity verification (KYC): none -> verified | rejected. `verified` mirrors it.
+addColumn('sellers', 'kyc_status', "TEXT NOT NULL DEFAULT 'none'");
+addColumn('sellers', 'kyc_note', 'TEXT');
+addColumn('sellers', 'kyc_reviewed_at', 'TEXT');
+addColumn('sellers', 'national_id_last4', 'TEXT');
+addColumn('sellers', 'national_id_hash', 'TEXT');
+db.exec("UPDATE sellers SET kyc_status = 'verified' WHERE verified = 1 AND kyc_status = 'none'");
+// The buyer's photo of what arrived, taken before they confirm or dispute.
+addColumn('orders', 'inspection_photo_path', 'TEXT');
+addColumn('orders', 'inspection_photo_mime', 'TEXT');
+addColumn('apps', 'webhook_secret', 'TEXT');
 
 export const now = () => new Date().toISOString();
 export const newId = (prefix) => `${prefix}_${crypto.randomBytes(6).toString('base64url')}`;
@@ -455,10 +480,16 @@ export function listIdentitySellers() {
     if (IDENTITY_KINDS.includes(row.kind)) item[row.kind] = true;
     if (row.submitted_at > item.submitted_at) item.submitted_at = row.submitted_at;
   }
-  return [...grouped.values()].map((item) => ({
-    ...item,
-    complete: item.id_front && item.id_back && item.face,
-  }));
+  return [...grouped.values()].map((item) => {
+    const s = getSeller(item.seller_id);
+    return {
+      ...item,
+      complete: item.id_front && item.id_back && item.face,
+      kyc_status: s.kyc_status,
+      kyc_note: s.kyc_note,
+      national_id_last4: s.national_id_last4,
+    };
+  });
 }
 
 export function sellerHistory(sellerId) {
@@ -484,7 +515,57 @@ export function sellerHistory(sellerId) {
     member_since: s.created_at,
     photo_url: s.photo_path ? `/api/sellers/${s.id}/photo` : null,
     socials: socialsForSeller(s.id),
+    ...sellerRating(s.id),
   };
+}
+
+// ---- seller identity verification -------------------------------------------------
+export function kycFor(sellerId) {
+  const s = getSeller(sellerId);
+  if (!s) return null;
+  return {
+    status: s.kyc_status || 'none',
+    note: s.kyc_note || null,
+    reviewed_at: s.kyc_reviewed_at || null,
+    national_id_last4: s.national_id_last4 || null,
+    documents: identityStatus(sellerId),
+  };
+}
+
+export function setKyc(sellerId, { status, note = null, last4, hash }) {
+  db.prepare(
+    `UPDATE sellers SET kyc_status = ?, kyc_note = ?, kyc_reviewed_at = ?, verified = ?,
+       national_id_last4 = COALESCE(?, national_id_last4), national_id_hash = COALESCE(?, national_id_hash)
+     WHERE id = ?`,
+  ).run(status, note, now(), status === 'verified' ? 1 : 0, last4 ?? null, hash ?? null, sellerId);
+  return kycFor(sellerId);
+}
+
+export const nationalIdInUse = (hash, sellerId) =>
+  !!db.prepare('SELECT 1 FROM sellers WHERE national_id_hash = ? AND id != ?').get(hash, sellerId);
+
+// ---- ratings and reviews ----------------------------------------------------------------
+export function sellerRating(sellerId) {
+  const r = db.prepare('SELECT COUNT(*) AS n, AVG(seller_rating) AS avg FROM reviews WHERE seller_id = ?').get(sellerId);
+  return { rating: r.n ? Math.round(r.avg * 10) / 10 : null, review_count: r.n };
+}
+
+export const reviewsForSeller = (sellerId, limit = 50) =>
+  db.prepare(
+    `SELECT r.id, r.order_id, r.buyer_name, r.seller_rating, r.service_rating, r.comment, r.created_at, l.title AS listing_title
+       FROM reviews r JOIN orders o ON o.id = r.order_id JOIN listings l ON l.id = o.listing_id
+      WHERE r.seller_id = ? ORDER BY r.created_at DESC LIMIT ?`,
+  ).all(sellerId, limit);
+
+export const reviewForOrder = (orderId) => db.prepare('SELECT * FROM reviews WHERE order_id = ?').get(orderId) || null;
+
+export function insertReview(row) {
+  const r = { id: newId('rev'), comment: null, created_at: now(), ...row };
+  db.prepare(
+    `INSERT INTO reviews (id, order_id, seller_id, buyer_name, buyer_email, seller_rating, service_rating, comment, created_at)
+     VALUES (@id, @order_id, @seller_id, @buyer_name, @buyer_email, @seller_rating, @service_rating, @comment, @created_at)`,
+  ).run(r);
+  return r;
 }
 
 export function insertListing(l) {
@@ -726,7 +807,7 @@ function moneySum(rows, states, field) {
 }
 
 export function buyerDashboard(email) {
-  const orders = ordersForBuyer(email);
+  const orders = ordersForBuyer(email).map((o) => ({ ...o, reviewed: !!reviewForOrder(o.id) }));
   const tickets = listTickets({ email });
   const accountCur = db.prepare('SELECT currency FROM users WHERE lower(email) = lower(?)').get(email)?.currency || 'USD';
   const codes = [...new Set(orders.map((o) => o.currency).filter(Boolean))];
@@ -753,7 +834,7 @@ export function sellerDashboard(sellerId) {
   const tickets = listTickets({ email: seller.email, sellerId });
   const account = getUserBySellerId(sellerId);
   const currency = account?.currency || 'USD';
-  const { photo_path, photo_mime, ...sellerRest } = seller;
+  const { photo_path, photo_mime, national_id_hash, ...sellerRest } = seller;
   return {
     seller: {
       ...sellerRest,
@@ -1065,20 +1146,73 @@ export function invitesForEmail(email) {
   return db.prepare(`${inviteJoin} WHERE lower(i.recipient_email) = lower(?) ORDER BY i.created_at DESC`).all(email);
 }
 
-export function insertApp({ name, webhook_url = null }) {
+const appKey = () => `fl_${crypto.randomBytes(24).toString('base64url')}`;
+const webhookSecret = () => `whsec_${crypto.randomBytes(24).toString('base64url')}`;
+
+export function insertApp({ name, webhook_url = null, owner_user_id = null }) {
   const row = {
     id: newId('app'),
     name: String(name).slice(0, 80),
-    api_key: `fl_${crypto.randomBytes(24).toString('base64url')}`,
+    api_key: appKey(),
     webhook_url,
+    webhook_secret: webhookSecret(),
+    owner_user_id,
     created_at: now(),
   };
-  db.prepare('INSERT INTO apps (id, name, api_key, webhook_url, created_at) VALUES (@id, @name, @api_key, @webhook_url, @created_at)').run(row);
+  db.prepare(
+    'INSERT INTO apps (id, name, api_key, webhook_url, webhook_secret, owner_user_id, created_at) VALUES (@id, @name, @api_key, @webhook_url, @webhook_secret, @owner_user_id, @created_at)',
+  ).run(row);
   return row;
 }
 
-export const getApp = (id) => db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
+export function getApp(id) {
+  const app = db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
+  // Apps created before webhook signing get a secret the first time they are read.
+  if (app && !app.webhook_secret) {
+    app.webhook_secret = webhookSecret();
+    db.prepare('UPDATE apps SET webhook_secret = ? WHERE id = ?').run(app.webhook_secret, app.id);
+  }
+  return app;
+}
 export const getAppByKey = (key) => (key ? db.prepare('SELECT * FROM apps WHERE api_key = ?').get(key) : null);
+export const appsForUser = (userId) =>
+  db.prepare('SELECT * FROM apps WHERE owner_user_id = ? ORDER BY created_at DESC').all(userId).map((a) => getApp(a.id));
+
+export function updateApp(id, { name, webhook_url }) {
+  const app = getApp(id);
+  db.prepare('UPDATE apps SET name = ?, webhook_url = ? WHERE id = ?').run(
+    name !== undefined ? String(name).slice(0, 80) : app.name,
+    webhook_url !== undefined ? webhook_url : app.webhook_url,
+    id,
+  );
+  return getApp(id);
+}
+
+export function rotateAppSecret(id, which) {
+  if (which === 'webhook') db.prepare('UPDATE apps SET webhook_secret = ? WHERE id = ?').run(webhookSecret(), id);
+  else db.prepare('UPDATE apps SET api_key = ? WHERE id = ?').run(appKey(), id);
+  return getApp(id);
+}
+
+// Payments stay on record for the audit trail; deleting an app only revokes its key.
+export function deleteApp(id) {
+  db.prepare('DELETE FROM app_events WHERE app_id = ?').run(id);
+  db.prepare('DELETE FROM apps WHERE id = ?').run(id);
+}
+
+export function appPayments(appId, limit = 50) {
+  return db.prepare('SELECT * FROM orders WHERE app_id = ? ORDER BY created_at DESC LIMIT ?').all(appId, limit);
+}
+
+export function appStats(appId) {
+  return db.prepare(
+    `SELECT COUNT(*) AS payments,
+            COALESCE(SUM(CASE WHEN state IN (${HELD.map(() => '?').join(',')}) THEN amount END), 0) AS held,
+            COALESCE(SUM(CASE WHEN state IN (${RELEASED.map(() => '?').join(',')}) THEN COALESCE(captured_amount, amount) END), 0) AS captured
+       FROM orders WHERE app_id = ?`,
+  ).get(...HELD, ...RELEASED, appId);
+}
+
 export const getAppByName = (name) => db.prepare('SELECT * FROM apps WHERE name = ? ORDER BY created_at LIMIT 1').get(name);
 
 export function ensureDemoApp(webhookUrl) {

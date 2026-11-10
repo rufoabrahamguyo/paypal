@@ -7,3 +7,4 @@ data/*.db-*
 data/uploads/
 data/scam-embeddings.json
 .DS_Store
+web/dist/

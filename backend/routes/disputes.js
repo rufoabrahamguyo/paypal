@@ -47,6 +47,7 @@ disputes.post('/orders/:id/disputes', upload.single('photo'), async (req, res) =
     cleanup();
     return res.status(400).json({ error: 'complaint is required' });
   }
+  const order = getOrder(req.params.id);
   try {
     escrow.openDispute(req.params.id);
   } catch (e) {
@@ -56,8 +57,9 @@ disputes.post('/orders/:id/disputes', upload.single('photo'), async (req, res) =
   const d = insertDispute({
     order_id: req.params.id,
     complaint: complaint.slice(0, 4000),
-    photo_path: req.file?.path ?? null,
-    photo_mime: req.file?.mimetype ?? null,
+    // With no new photo, the buyer's inspection photo of what arrived is the evidence.
+    photo_path: req.file?.path ?? order.inspection_photo_path ?? null,
+    photo_mime: req.file?.mimetype ?? order.inspection_photo_mime ?? null,
   });
   const job = runInBackground(req.params.id, d.id);
   if (req.query.wait) await job;
