@@ -176,27 +176,8 @@ Every transition is written to `order_events` with a timestamp, the actor (buyer
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  subgraph Clients
-    UI[React app<br/>web/src]
-    BA[Claude buyer agent<br/>scripts/agent-buyer.js]
-    MCP[Any MCP client<br/>via backend/mcp.js]
-    APP[Merchant app<br/>Pal-Lock API]
-  end
-  BA & MCP -->|buyerTools.js| API
-  UI & APP -->|REST| API[Express API<br/>backend/routes/*]
-  API --> ESC[escrow.js<br/>state machine]
-  ESC --> DB[(SQLite)]
-  ESC --> PP[paypal.js]
-  PP -->|OAuth, Orders v2 AUTHORIZE / CAPTURE,<br/>authorize, capture, void<br/>+ PayPal-Request-Id| PAYPAL[(PayPal Sandbox)]
-  API -->|dispute| AG[agent.js<br/>Claude adjudicator]
-  AG -->|vision + tools| CLAUDE[(Claude API)]
-  AG -->|lookup_product_reference| PD[productData.js] --> C3[(Channel3)]
-  AG -->|search_scam_patterns| SS[scamSearch.js] --> ES[(Elastic kNN)]
-  AG -->|decision, after guardrails| ESC
-  API -->|new listing| VER[verification.js] --> PD & SS
-```
+![Uploading mermaid-diagram (2).png…]()
+
 
 ## Tools used
 
