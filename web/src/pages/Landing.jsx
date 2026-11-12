@@ -16,7 +16,7 @@ export default function Landing() {
               <p className="land-kicker">Escrow on PayPal</p>
               <h1 id="banner-title">Ask for the money. It waits.</h1>
               <p className="lede">Write the item and the price. Send one link on WhatsApp or email. The buyer pays into a PayPal hold, and you are paid when they confirm the item. If something is wrong, an AI agent weighs the evidence and settles it in about a minute.</p>
-              <div className="land-actions">
+              <div className="land-actions" data-tour="start">
                 <Link className="btn btn-gold" to="/signup?role=seller">Request a payment</Link>
                 <Link className="btn btn-ghost" to="/market">Try the demo market</Link>
               </div>
@@ -34,7 +34,7 @@ export default function Landing() {
           </div>
         </section>
 
-        <section className="land-steps" aria-labelledby="steps-title">
+        <section className="land-steps" aria-labelledby="steps-title" data-tour="steps">
           <div>
             <p className="eyebrow">The path</p>
             <h2 id="steps-title">From a shop message to a hold</h2>

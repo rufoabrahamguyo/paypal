@@ -5,7 +5,7 @@ import { when } from '../lib/format.js';
 import { useLoad, useTitle } from '../lib/hooks.js';
 import { useSession } from '../lib/session.jsx';
 import { useToast } from '../lib/toast.jsx';
-import { ErrorNote, Loading, TicketBadge } from '../components/ui.jsx';
+import { DashHead, ErrorNote, Loading, Panel, TicketBadge } from '../components/ui.jsx';
 
 function Bubble({ name, at, body, support }) {
   return (
@@ -67,9 +67,12 @@ function Desk({ user }) {
   }, [user.id]);
   return (
     <>
-      <h1 className="page-title">Complaints</h1>
-      <p className="page-lead">Tell us what went wrong with an order, a payment, or a listing. This is separate from the dispute agent, which only runs when a buyer disputes a delivery.</p>
-      <div className="dash-grid" style={{ marginTop: 18 }}>
+      <DashHead
+        kicker={role === 'seller' ? 'Seller' : 'Buyer'}
+        title="Reports"
+        lead="Tell us what went wrong with an order, a payment, or a listing. This is separate from the dispute agent, which only runs when a buyer disputes a delivery."
+      />
+      <div className="dash-board">
         <form className="card card-pad stack" onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
@@ -102,18 +105,15 @@ function Desk({ user }) {
           </label>
           <button className="btn btn-primary btn-block" type="submit" disabled={busy}>Submit complaint</button>
         </form>
-        <section className="stack">
-          <h2 className="section-title">Your complaints</h2>
-          <div className="card">
-            {!tickets ? <p className="empty">Loading…</p> : tickets.length ? tickets.map((t) => (
-              <Link key={t.id} className="row-link cols-3" to={`/support/${t.id}`}>
-                <span><b>{t.subject}</b><span className="meta">{t.topic}</span></span>
-                <span><TicketBadge status={t.status} /></span>
-                <span className="meta">{when(t.updated_at)}</span>
-              </Link>
-            )) : <p className="empty">None yet.</p>}
-          </div>
-        </section>
+        <Panel title="Your reports">
+          {!tickets ? <p className="empty">Loading…</p> : tickets.length ? tickets.map((t) => (
+            <Link key={t.id} className="row-link cols-3" to={`/support/${t.id}`}>
+              <span><b>{t.subject}</b><span className="meta">{t.topic}</span></span>
+              <span><TicketBadge status={t.status} /></span>
+              <span className="meta">{when(t.updated_at)}</span>
+            </Link>
+          )) : <p className="empty">None yet.</p>}
+        </Panel>
       </div>
     </>
   );
@@ -125,8 +125,7 @@ export default function Support() {
   useTitle('Support');
   return (
     <main id="main" className="page">
-      <p className="eyebrow">Support</p>
-      {id ? <Ticket id={id} />
+      {id ? <><p className="eyebrow">Support</p><Ticket id={id} /></>
         : user.role === 'buyer' || user.role === 'seller' ? <Desk user={user} />
           : <p className="callout">Sign in with a buyer or seller account to file a complaint. Answer complaints from the <Link to="/admin">audit desk</Link>.</p>}
     </main>

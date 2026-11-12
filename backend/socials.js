@@ -12,12 +12,72 @@ export const PLATFORMS = {
 
 const SKIP = new Set(['p', 'reel', 'reels', 'stories', 'explore', 'accounts', 'share', 'watch', 'shorts', 'channel', 'c', 'user']);
 
+const ALIASES = {
+  twitter: 'x',
+  x: 'x',
+  ig: 'instagram',
+  insta: 'instagram',
+  instagram: 'instagram',
+  fb: 'facebook',
+  facebook: 'facebook',
+  yt: 'youtube',
+  youtube: 'youtube',
+  tiktok: 'tiktok',
+  'tik tok': 'tiktok',
+};
+
 export function listPlatforms() {
   return Object.entries(PLATFORMS).map(([id, p]) => ({ id, label: p.label }));
 }
 
 export function platformLabel(id) {
-  return PLATFORMS[id]?.label || id;
+  if (PLATFORMS[id]) return PLATFORMS[id].label;
+  const slug = String(id || '');
+  if (slug.startsWith('other:')) {
+    return slug.slice(6).split('-').filter(Boolean).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  }
+  return id;
+}
+
+function slugify(name) {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 30)
+    .replace(/-+$/g, '');
+}
+
+/** A stored platform id: one of the known apps, or other:<slug>. */
+export function isPlatformId(id) {
+  if (PLATFORMS[id]) return true;
+  return /^other:[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(id || '')) && String(id).length <= 36;
+}
+
+export function isCustomPlatform(id) {
+  return isPlatformId(id) && String(id).startsWith('other:');
+}
+
+/**
+ * Turn a dropdown value into a platform id.
+ * `other` needs the typed app name. A name that is really TikTok, Instagram,
+ * Facebook, X, or YouTube (including "Twitter") maps back to that app.
+ */
+export function resolvePlatform(platform, customName) {
+  const id = String(platform || '').trim().toLowerCase();
+  if (PLATFORMS[id]) return { id, label: PLATFORMS[id].label, custom: false };
+  if (id !== 'other') return { error: 'Choose an app, or pick Other and type its name' };
+  const name = String(customName || '').trim().replace(/\s+/g, ' ');
+  if (name.length < 2 || name.length > 30) return { error: 'Name that app in 2–30 characters' };
+  if (/[/@]|https?:/i.test(name)) return { error: 'Type the app name, not a link or username' };
+  if (!/^[\p{L}\p{N}][\p{L}\p{N} .&+'’-]*$/u.test(name)) return { error: 'Use letters and numbers in the app name' };
+  const known = ALIASES[name.toLowerCase()] || ALIASES[slugify(name).replace(/-/g, '')];
+  if (known && PLATFORMS[known]) return { id: known, label: PLATFORMS[known].label, custom: false };
+  const slug = slugify(name);
+  if (slug.length < 2) return { error: 'Use a name with letters or numbers' };
+  return { id: `other:${slug}`, label: name, custom: true };
 }
 
 export function profileUrl(platform, handle) {

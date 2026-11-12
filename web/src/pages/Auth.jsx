@@ -5,6 +5,7 @@ import { useSession } from '../lib/session.jsx';
 import { useToast } from '../lib/toast.jsx';
 import { useTitle } from '../lib/hooks.js';
 import { dashPath, safeNext } from '../lib/format.js';
+import { Brand } from '../components/ui.jsx';
 
 function useNext() {
   const [params] = useSearchParams();
@@ -36,6 +37,31 @@ function continueWithGmail({ intent, next, form, toast }) {
     q.set('role', role);
   }
   window.location.assign(`/api/auth/google/start?${q}`);
+}
+
+function AuthFrame({ eyebrow, script, children }) {
+  return (
+    <main className="auth-shell" id="main">
+      <aside className="auth-hero">
+        <div className="auth-hero-copy">
+          <span className="auth-hero-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="22" height="22">
+              <circle cx="11.5" cy="16" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M15.5 16h11M22.2 16v3.2M26.5 16v2.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </span>
+          <p className="auth-hero-eyebrow">{eyebrow}</p>
+          <p className="auth-hero-script">{script}</p>
+        </div>
+      </aside>
+      <div className="auth-panel">
+        <div className="auth-form">
+          <div className="auth-brand"><Brand to="/" /></div>
+          {children}
+        </div>
+      </div>
+    </main>
+  );
 }
 
 // After signing in, refresh the session and go where the server says.
@@ -73,11 +99,9 @@ export function Login() {
   }
 
   return (
-    <main className="auth-wrap" id="main">
-      <form onSubmit={submit} className="card auth-card stack">
-        <p className="eyebrow">Account</p>
+    <AuthFrame eyebrow="Money that stays locked until" script="Release">
+      <form onSubmit={submit} className="stack">
         <h1>Sign in</h1>
-        <p className="meta" style={{ margin: 0 }}>Buyers, sellers, and the audit desk each land on their own dashboard.</p>
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button
           className="btn btn-gmail btn-block"
@@ -88,16 +112,16 @@ export function Login() {
         </button>
         <p className="auth-or">or</p>
         <label className="lbl">Email
-          <input name="email" type="email" required autoComplete="username" className="field" />
+          <input name="email" type="email" required autoComplete="username" className="field" placeholder="Email" />
         </label>
         <label className="lbl">Password
-          <input name="password" type="password" required autoComplete="current-password" className="field" />
+          <input name="password" type="password" required autoComplete="current-password" className="field" placeholder="Password" />
         </label>
         <button className="btn btn-primary btn-block" type="submit" disabled={busy}>Sign in</button>
-        <p className="meta" style={{ margin: 0 }}>No account yet? <Link to={next ? `/signup?next=${encodeURIComponent(next)}` : '/signup'}>Create one</Link></p>
-        <p className="fine">Demo audit: admin@funguo.test / funguo-demo</p>
+        <p className="auth-switch">No account yet? <Link to={next ? `/signup?next=${encodeURIComponent(next)}` : '/signup'}>Create one</Link></p>
+        <p className="fine auth-demo">Demo audit: admin@funguo.test / funguo-demo</p>
       </form>
-    </main>
+    </AuthFrame>
   );
 }
 
@@ -134,11 +158,9 @@ export function Signup() {
   }
 
   return (
-    <main className="auth-wrap" id="main">
-      <form onSubmit={submit} className="card auth-card stack">
-        <p className="eyebrow">Account</p>
+    <AuthFrame eyebrow="One link from a shop to a" script="Hold">
+      <form onSubmit={submit} className="stack">
         <h1>Create an account</h1>
-        <p className="meta" style={{ margin: 0 }}>Sellers request payment. Buyers pay from an invite. Pick the one you are.</p>
         <label className="lbl">I am
           <select name="role" defaultValue={role} className="field">
             <option value="seller">Selling — I want to be paid</option>
@@ -151,7 +173,7 @@ export function Signup() {
             {countries.map((c) => <option key={c.code} value={c.code}>{c.name} — {c.label}</option>)}
           </select>
         </label>
-        <p className="meta" style={{ margin: 0 }}>Prices on your account use this country's currency. Kenya is KSh.</p>
+        <p className="fine">Prices on your account use this country's currency. Kenya is KSh.</p>
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button
           className="btn btn-gmail btn-block"
@@ -160,20 +182,20 @@ export function Signup() {
         >
           <GoogleMark /> Continue with Gmail
         </button>
-        <p className="fine" style={{ margin: 0 }}>Uses a @gmail.com address. Google confirms it, so there is no password to set.</p>
+        <p className="fine">Uses a @gmail.com address. Google confirms it, so there is no password to set.</p>
         <p className="auth-or">or</p>
         <label className="lbl">Name
-          <input name="name" required autoComplete="name" className="field" />
+          <input name="name" required autoComplete="name" className="field" placeholder="Full name" />
         </label>
         <label className="lbl">Email
-          <input name="email" type="email" required autoComplete="username" className="field" />
+          <input name="email" type="email" required autoComplete="username" className="field" placeholder="Email" />
         </label>
         <label className="lbl">Password
-          <input name="password" type="password" required minLength={8} autoComplete="new-password" className="field" />
+          <input name="password" type="password" required minLength={8} autoComplete="new-password" className="field" placeholder="Password" />
         </label>
         <button className="btn btn-primary btn-block" type="submit" disabled={busy}>Create account</button>
-        <p className="meta" style={{ margin: 0 }}>Already registered? <Link to={next ? `/login?next=${encodeURIComponent(next)}` : '/login'}>Sign in</Link></p>
+        <p className="auth-switch">Already registered? <Link to={next ? `/login?next=${encodeURIComponent(next)}` : '/login'}>Sign in</Link></p>
       </form>
-    </main>
+    </AuthFrame>
   );
 }

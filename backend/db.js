@@ -177,6 +177,30 @@ CREATE TABLE IF NOT EXISTS community_reports (
 );
 CREATE INDEX IF NOT EXISTS community_account ON community_reports(platform, handle);
 
+CREATE TABLE IF NOT EXISTS community_comments (
+  id TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,
+  handle TEXT NOT NULL,
+  author_id TEXT NOT NULL REFERENCES users(id),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS community_comments_account ON community_comments(platform, handle);
+
+CREATE TABLE IF NOT EXISTS platform_names (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS community_reactions (
+  platform TEXT NOT NULL,
+  handle TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (platform, handle, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -274,6 +298,19 @@ export const newId = (prefix) => `${prefix}_${crypto.randomBytes(6).toString('ba
 
 const parse = (s) => (s ? JSON.parse(s) : null);
 
+export function rememberPlatformName(id, label) {
+  if (!String(id || '').startsWith('other:') || !label) return;
+  db.prepare('INSERT INTO platform_names (id, label) VALUES (?, ?) ON CONFLICT(id) DO NOTHING').run(id, label);
+}
+
+export function platformName(id) {
+  if (String(id || '').startsWith('other:')) {
+    const row = db.prepare('SELECT label FROM platform_names WHERE id = ?').get(id);
+    if (row?.label) return row.label;
+  }
+  return platformLabel(id);
+}
+
 // ---- sellers / listings ---------------------------------------------------
 
 export const getSeller = (id) => db.prepare('SELECT * FROM sellers WHERE id = ?').get(id);
@@ -283,9 +320,9 @@ function presentSocial(row, codes) {
   return {
     id: row.id,
     platform: row.platform,
-    label: platformLabel(row.platform),
+    label: platformName(row.platform),
     handle: row.handle,
-    profile_url: row.profile_url,
+    profile_url: row.profile_url || null,
     status: row.status,
     verified_at: row.verified_at,
     reports: communityCount(row.platform, row.handle),
@@ -306,8 +343,8 @@ function presentReport(row) {
     id: row.id,
     platform: row.platform,
     handle: row.handle,
-    label: platformLabel(row.platform),
-    profile_url: row.profile_url,
+    label: platformName(row.platform),
+    profile_url: row.profile_url || null,
     reason: row.reason,
     reason_label: REPORT_REASONS[row.reason] || row.reason,
     body: row.body,
@@ -322,20 +359,151 @@ export function communityCount(platform, handle) {
   return row?.n || 0;
 }
 
-export function communityAccounts() {
+export const REACTION_KINDS = {
+  like: 'Helpful',
+  same: 'Happened to me',
+  doubt: 'Not convinced',
+};
+
+const emptyReactions = () => ({ like: 0, same: 0, doubt: 0 });
+
+function accountKey(platform, handle) {
+  return `${platform}:${String(handle || '').toLowerCase()}`;
+}
+
+export function communityReactions(platform, handle, userId) {
+  const key = String(handle || '').toLowerCase();
+  const counts = emptyReactions();
+  for (const row of db.prepare(
+    'SELECT kind, COUNT(*) AS n FROM community_reactions WHERE platform = ? AND handle = ? GROUP BY kind',
+  ).all(platform, key)) {
+    if (row.kind in counts) counts[row.kind] = row.n;
+  }
+  const mine = userId
+    ? db.prepare('SELECT kind FROM community_reactions WHERE platform = ? AND handle = ? AND user_id = ?').get(platform, key, userId)
+    : null;
+  return { ...counts, mine: mine?.kind || null };
+}
+
+export function communityCommentCount(platform, handle) {
+  const row = db.prepare(
+    'SELECT COUNT(*) AS n FROM community_comments WHERE platform = ? AND handle = ?',
+  ).get(platform, String(handle || '').toLowerCase());
+  return row?.n || 0;
+}
+
+export function communityComments(platform, handle) {
   return db.prepare(
-    `SELECT platform, handle, profile_url, COUNT(*) AS reports, MAX(created_at) AS latest
-     FROM community_reports
+    `SELECT c.id, c.body, c.created_at, u.name AS author_name
+     FROM community_comments c
+     JOIN users u ON u.id = c.author_id
+     WHERE c.platform = ? AND c.handle = ?
+     ORDER BY c.created_at ASC`,
+  ).all(platform, String(handle || '').toLowerCase()).map((row) => ({
+    id: row.id,
+    body: row.body,
+    created_at: row.created_at,
+    author_name: row.author_name,
+  }));
+}
+
+export function insertCommunityComment({ platform, handle, author_id, body }) {
+  const row = {
+    id: newId('cmt'),
+    platform,
+    handle: String(handle).toLowerCase(),
+    author_id,
+    body,
+    created_at: now(),
+  };
+  db.prepare(
+    `INSERT INTO community_comments (id, platform, handle, author_id, body, created_at)
+     VALUES (@id, @platform, @handle, @author_id, @body, @created_at)`,
+  ).run(row);
+  return communityComments(platform, row.handle).find((c) => c.id === row.id);
+}
+
+export function toggleCommunityReaction({ platform, handle, userId, kind }) {
+  const key = String(handle).toLowerCase();
+  const existing = db.prepare(
+    'SELECT kind FROM community_reactions WHERE platform = ? AND handle = ? AND user_id = ?',
+  ).get(platform, key, userId);
+  if (existing?.kind === kind) {
+    db.prepare('DELETE FROM community_reactions WHERE platform = ? AND handle = ? AND user_id = ?').run(platform, key, userId);
+  } else if (existing) {
+    db.prepare(
+      'UPDATE community_reactions SET kind = ?, created_at = ? WHERE platform = ? AND handle = ? AND user_id = ?',
+    ).run(kind, now(), platform, key, userId);
+  } else {
+    db.prepare(
+      'INSERT INTO community_reactions (platform, handle, user_id, kind, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(platform, key, userId, kind, now());
+  }
+  return communityReactions(platform, key, userId);
+}
+
+export function communityAccounts(userId) {
+  const rows = db.prepare(
+    `SELECT platform, handle,
+            MAX(profile_url) AS profile_url,
+            SUM(reports) AS reports,
+            MAX(latest) AS latest
+     FROM (
+       SELECT platform, handle, profile_url, 1 AS reports, created_at AS latest FROM community_reports
+       UNION ALL
+       SELECT platform, handle, NULL, 0, created_at FROM community_comments
+       UNION ALL
+       SELECT platform, handle, NULL, 0, created_at FROM community_reactions
+     )
      GROUP BY platform, handle
      ORDER BY reports DESC, latest DESC`,
-  ).all().map((row) => ({
-    platform: row.platform,
-    handle: row.handle,
-    label: platformLabel(row.platform),
-    profile_url: row.profile_url,
-    reports: row.reports,
-    latest: row.latest,
-  }));
+  ).all();
+  const commentsByAccount = new Map();
+  for (const row of db.prepare(
+    `SELECT c.id, c.platform, c.handle, c.body, c.created_at, u.name AS author_name
+     FROM community_comments c
+     JOIN users u ON u.id = c.author_id
+     ORDER BY c.created_at ASC`,
+  ).all()) {
+    const key = accountKey(row.platform, row.handle);
+    if (!commentsByAccount.has(key)) commentsByAccount.set(key, []);
+    commentsByAccount.get(key).push({
+      id: row.id,
+      body: row.body,
+      created_at: row.created_at,
+      author_name: row.author_name,
+    });
+  }
+  const reactionBuckets = new Map();
+  for (const row of db.prepare(
+    'SELECT platform, handle, kind, COUNT(*) AS n FROM community_reactions GROUP BY platform, handle, kind',
+  ).all()) {
+    const key = accountKey(row.platform, row.handle);
+    if (!reactionBuckets.has(key)) reactionBuckets.set(key, emptyReactions());
+    const bag = reactionBuckets.get(key);
+    if (row.kind in bag) bag[row.kind] = row.n;
+  }
+  const mine = new Map(
+    (userId
+      ? db.prepare('SELECT platform, handle, kind FROM community_reactions WHERE user_id = ?').all(userId)
+      : []
+    ).map((row) => [accountKey(row.platform, row.handle), row.kind]),
+  );
+  return rows.map((row) => {
+    const key = accountKey(row.platform, row.handle);
+    const comments = commentsByAccount.get(key) || [];
+    return {
+      platform: row.platform,
+      handle: row.handle,
+      label: platformName(row.platform),
+      profile_url: row.profile_url || profileUrl(row.platform, row.handle),
+      reports: row.reports,
+      latest: row.latest,
+      comment_count: comments.length,
+      comments,
+      reactions: { ...(reactionBuckets.get(key) || emptyReactions()), mine: mine.get(key) || null },
+    };
+  });
 }
 
 export function communityReports(platform, handle) {
@@ -381,7 +549,7 @@ export function getSocial(id) {
 }
 
 export function saveSocial({ seller_id, platform, handle }) {
-  const profile_url = profileUrl(platform, handle);
+  const profile_url = profileUrl(platform, handle) || '';
   const existing = db.prepare('SELECT * FROM seller_socials WHERE seller_id = ? AND platform = ?').get(seller_id, platform);
   if (existing && existing.handle === handle) return getSocial(existing.id);
   const code = `FUNGUO-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -575,6 +743,11 @@ export function insertListing(l) {
      VALUES (@id, @seller_id, @title, @description, @price, @currency, @image_url, @verification_json, @created_at)`,
   ).run(row);
   return getListing(row.id);
+}
+
+export function setListingImage(id, image_url) {
+  db.prepare('UPDATE listings SET image_url = ? WHERE id = ?').run(image_url, id);
+  return getListing(id);
 }
 
 export function getListing(id) {

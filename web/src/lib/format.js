@@ -22,6 +22,13 @@ export function money(n, cur = 'USD') {
 
 export const when = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
 
+export function greeting(name) {
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const first = String(name || '').trim().split(/\s+/)[0];
+  return first ? `${hello}, ${first}` : hello;
+}
+
 export const STATE_STYLE = {
   INITIATED: 'b-slate',
   HELD: 'b-amber',

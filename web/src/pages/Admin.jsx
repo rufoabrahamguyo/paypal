@@ -7,7 +7,7 @@ import { api } from '../lib/api.js';
 import { when } from '../lib/format.js';
 import { useLoad, useTitle } from '../lib/hooks.js';
 import { useToast } from '../lib/toast.jsx';
-import { ErrorNote, Loading, TicketBadge } from '../components/ui.jsx';
+import { DashHead, ErrorNote, Loading, Panel, Stat, TicketBadge } from '../components/ui.jsx';
 
 const KINDS = ['all', 'order', 'paypal', 'dispute', 'support', 'webhook'];
 const DECISION = {
@@ -30,11 +30,11 @@ function LedgerStats({ rows }) {
   const currencies = [...new Set(decided.map((r) => r.currency))];
   return (
     <section className="stats ledger-stats" aria-label="Agent performance">
-      <article className="card stat"><span>Disputes</span><strong>{rows.length}</strong></article>
-      <article className="card stat"><span>Settled by the agent</span><strong>{pct(auto.length, decided.length)}</strong></article>
-      <article className="card stat"><span>Stopped by a guardrail</span><strong>{guarded.length}</strong></article>
-      <article className="card stat"><span>Median time to ruling</span><strong>{secs.length ? `${secs[Math.floor(secs.length / 2)]}s` : '—'}</strong></article>
-      <article className="card stat"><span>Returned to buyers</span><strong>{returned.toFixed(2)}{currencies.length === 1 ? ` ${currencies[0]}` : ''}</strong></article>
+      <Stat label="Disputes" value={rows.length} note="Rulings in this ledger" />
+      <Stat label="Settled by the agent" value={pct(auto.length, decided.length)} note="No person had to step in" tone="good" />
+      <Stat label="Stopped by a guardrail" value={guarded.length} note="Held for a person" tone={guarded.length ? 'warn' : undefined} />
+      <Stat label="Median time" value={secs.length ? `${secs[Math.floor(secs.length / 2)]}s` : '—'} note="From open to ruling" />
+      <Stat icon="wallet" label="Returned to buyers" value={`${returned.toFixed(2)}${currencies.length === 1 ? ` ${currencies[0]}` : ''}`} note="Voids and partial refunds" />
     </section>
   );
 }
@@ -214,22 +214,36 @@ export default function Admin() {
   const { data, error, reload } = useLoad(() => api('/api/admin/audit'));
   const rows = data ? data.trail.filter((r) => kind === 'all' || r.kind === kind) : [];
 
+  const open = data?.counts.tickets_open || 0;
   return (
     <main id="main" className="page">
-      <p className="eyebrow">Admin</p>
-      <h1 className="page-title">Audit trail</h1>
-      <p className="page-lead">Every order transition, PayPal call, dispute decision, webhook, and support ticket.</p>
-      <Ledger />
+      <DashHead
+        kicker="Audit desk"
+        title="Audit trail"
+        lead="Every order transition, PayPal call, dispute decision, webhook, and support ticket."
+      />
       <ErrorNote error={error} />
       {!data ? <Loading>Loading the trail…</Loading> : (
         <>
           <section className="stats" aria-label="Audit counts">
-            <article className="card stat"><span>Orders</span><strong>{data.counts.orders}</strong></article>
-            <article className="card stat"><span>State changes</span><strong>{data.counts.events}</strong></article>
-            <article className="card stat"><span>PayPal calls</span><strong>{data.counts.paypal_calls}</strong></article>
-            <article className="card stat"><span>Open complaints</span><strong>{data.counts.tickets_open}</strong></article>
+            <Stat icon="orders" label="Orders" value={data.counts.orders} note="Across every shop" />
+            <Stat icon="audit" label="State changes" value={data.counts.events} note="Recorded on the trail" />
+            <Stat icon="wallet" label="PayPal calls" value={data.counts.paypal_calls} note="Authorize, capture, void" />
+            <Stat icon="flag" label="Open reports" value={open} note={open ? 'Waiting on this desk' : 'Inbox is clear'} tone={open ? 'warn' : 'good'} />
           </section>
-          <div className="filters" role="toolbar" aria-label="Filter the trail">
+          <div className="dash-board">
+            <Panel title="Open reports">
+              {data.tickets.length ? data.tickets.map((t) => <TicketCard key={t.id} ticket={t} onChange={reload} />)
+                : <p className="empty">No open complaints.</p>}
+            </Panel>
+            <Panel title="Identity checks">
+              <p className="meta" style={{ margin: 0, padding: '12px 18px 0' }}>ID cards and face photos stay on this desk. Buyers never see them.</p>
+              {data.identities?.length ? data.identities.map((row) => <IdentityCard key={row.seller_id} row={row} onChange={reload} />)
+                : <p className="empty">No identity documents yet.</p>}
+            </Panel>
+          </div>
+          <Ledger />
+          <div className="filters section-gap" role="toolbar" aria-label="Filter the trail">
             {KINDS.map((k) => <button key={k} type="button" className="btn btn-line" aria-pressed={k === kind} onClick={() => setKind(k)}>{k}</button>)}
           </div>
           <div className="card table-wrap">
@@ -251,17 +265,6 @@ export default function Admin() {
               </table>
             ) : <p className="empty">Nothing in this filter yet.</p>}
           </div>
-          <section className="stack section-gap">
-            <h2 className="section-title">Identity verification</h2>
-            <p className="meta" style={{ margin: 0 }}>ID cards and face photos stay on this desk. Buyers never see them. Confirm a seller, or send them back with what to fix.</p>
-            {data.identities?.length ? data.identities.map((row) => <IdentityCard key={row.seller_id} row={row} onChange={reload} />)
-              : <div className="card"><p className="empty">No identity documents yet.</p></div>}
-          </section>
-          <section className="stack section-gap">
-            <h2 className="section-title">Open complaints</h2>
-            {data.tickets.length ? data.tickets.map((t) => <TicketCard key={t.id} ticket={t} onChange={reload} />)
-              : <div className="card"><p className="empty">No open complaints.</p></div>}
-          </section>
         </>
       )}
     </main>

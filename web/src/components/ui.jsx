@@ -11,9 +11,9 @@ export function Mark() {
   );
 }
 
-export function Brand({ to, sub = 'Escrow on PayPal' }) {
+export function Brand({ to, sub = 'Escrow on PayPal', label }) {
   return (
-    <Link to={to} className="brand">
+    <Link to={to} className="brand" aria-label={label}>
       <span className="brand-mark"><Mark /></span>
       <span>
         <span className="brand-name">Funguo</span>
@@ -36,6 +36,10 @@ const ICON = {
   logout: <path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3" />,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>,
+  lock: <><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>,
+  wallet: <><path d="M3 8h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z" /><path d="M3 8V6a2 2 0 0 1 2-2h12" /><circle cx="16" cy="14" r="1" /></>,
+  flag: <><path d="M5 21V4" /><path d="M5 5h11l-1.5 3.5L16 12H5" /></>,
+  camera: <><path d="M4 8h3l1.6-2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13" r="3" /></>,
 };
 
 export function Icon({ name }) {
@@ -43,6 +47,44 @@ export function Icon({ name }) {
     <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {ICON[name]}
     </svg>
+  );
+}
+
+export function DashHead({ kicker, title, lead, action }) {
+  return (
+    <header className="dash-head">
+      <div>
+        {kicker && <p className="dash-kicker">{kicker}</p>}
+        <h1 className="page-title">{title}</h1>
+        {lead && <p className="page-lead">{lead}</p>}
+      </div>
+      {action}
+    </header>
+  );
+}
+
+export function Stat({ label, value, note, tone, icon }) {
+  return (
+    <article className="card stat">
+      <div className="stat-top">
+        <span>{label}</span>
+        {icon && <span className="stat-ico" aria-hidden="true"><Icon name={icon} /></span>}
+      </div>
+      <strong>{value}</strong>
+      {note && <span className={`stat-note${tone ? ` is-${tone}` : ''}`}>{note}</span>}
+    </article>
+  );
+}
+
+export function Panel({ title, action, children }) {
+  return (
+    <section className="card panel">
+      <header className="panel-head">
+        <h2>{title}</h2>
+        {action}
+      </header>
+      {children}
+    </section>
   );
 }
 
@@ -90,13 +132,46 @@ export function ErrorNote({ error }) {
   return error ? <p className="callout callout-bad">{error.message}</p> : null;
 }
 
+export const SOCIAL_APPS = [
+  ['tiktok', 'TikTok'],
+  ['instagram', 'Instagram'],
+  ['facebook', 'Facebook'],
+  ['x', 'X'],
+  ['youtube', 'YouTube'],
+];
+
+export function PlatformFields({ platform, onPlatform, handleDefault = '', handleKey, nameDefault = '', nameKey }) {
+  return (
+    <>
+      <div className="pair">
+        <label className="lbl">App
+          <select name="platform" className="field" required value={platform} onChange={(e) => onPlatform(e.target.value)}>
+            {SOCIAL_APPS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label className="lbl">Username
+          <input name="handle" required className="field" placeholder={platform === 'other' ? '@name or number' : '@yourname or profile link'} defaultValue={handleDefault} key={handleKey} />
+        </label>
+      </div>
+      {platform === 'other' && (
+        <label className="lbl">App name
+          <input name="platform_name" required maxLength={30} className="field" placeholder="WhatsApp, Telegram, Snapchat…" defaultValue={nameDefault} key={nameKey} />
+        </label>
+      )}
+    </>
+  );
+}
+
 export function SocialLinks({ seller }) {
   const links = seller?.socials || [];
   if (!links.length) return null;
   return (
     <div className="social-links">
       {links.map((a) => (
-        <a key={a.id || a.handle} className="social-link" href={a.profile_url} target="_blank" rel="noopener noreferrer">{a.label} · @{a.handle}</a>
+        String(a.profile_url || '').startsWith('https://')
+          ? <a key={a.id || a.handle} className="social-link" href={a.profile_url} target="_blank" rel="noopener noreferrer">{a.label} · @{a.handle}</a>
+          : <span key={a.id || a.handle} className="social-link">{a.label} · @{a.handle}</span>
       ))}
     </div>
   );

@@ -47,7 +47,7 @@ export default function Market() {
           <li><em>03</em><div><strong>Where</strong><span>Capture, partial capture, or void, recorded on the order.</span></div></li>
         </ol>
       </section>
-      <section className="stack">
+      <section className="stack" data-tour="listings">
         <h2 className="section-title">Listings</h2>
         {error && <p className="callout callout-bad">{error.message}</p>}
         <div className="listings">

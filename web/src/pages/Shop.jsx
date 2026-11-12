@@ -117,7 +117,11 @@ export default function Shop() {
     <>
       <header className="shop-bar">
         <strong>ABODE</strong>
-        <Link to="/developer">Payments by Funguo</Link>
+        <nav className="shop-nav" aria-label="Funguo">
+          <Link to="/market">Market</Link>
+          <Link to="/community">Community</Link>
+          <Link to="/developer">Developers</Link>
+        </nav>
       </header>
       <main id="main" className="shop-grid">
         {done ? <Result paymentId={params.get('payment')} error={params.get('error')} /> : <Cart cancelled={params.has('cancelled')} />}

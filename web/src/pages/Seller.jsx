@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { api, formData } from '../lib/api.js';
-import { copy, money } from '../lib/format.js';
+import { copy, greeting, money } from '../lib/format.js';
 import { useLoad, useTitle } from '../lib/hooks.js';
 import { useSession } from '../lib/session.jsx';
 import { useToast } from '../lib/toast.jsx';
-import { ErrorNote, Loading, OrderRow, RiskBadge, TicketRow } from '../components/ui.jsx';
+import { DashHead, ErrorNote, Icon, Loading, OrderRow, Panel, PlatformFields, RiskBadge, Stat, TicketRow } from '../components/ui.jsx';
 
 const VIEWS = {
   overview: ['Overview', 'Describe what the buyer is paying for, then send the link on WhatsApp or email. They create an account from that link and choose PayPal Checkout or Pal-Lock.'],
@@ -73,14 +73,36 @@ function SharePanel({ share }) {
 function RequestForm({ seller, onCreated }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState('');
+
+  function pickImage(file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return toast('Choose a photo');
+    if (file.size > 5 * 1024 * 1024) return toast('Photo must be under 5 MB');
+    if (preview) URL.revokeObjectURL(preview);
+    setImage(file);
+    setPreview(URL.createObjectURL(file));
+  }
+
+  function clearImage() {
+    if (preview) URL.revokeObjectURL(preview);
+    setImage(null);
+    setPreview('');
+  }
+
   return (
-    <form className="card card-pad stack" onSubmit={async (e) => {
+    <form id="request" className="card card-pad stack" onSubmit={async (e) => {
       e.preventDefault();
       setBusy(true);
       try {
-        const l = await api('/api/listings', { json: { ...formData(e.target), seller_id: seller.id } });
+        const body = new FormData(e.target);
+        body.set('seller_id', seller.id);
+        if (image) body.set('image', image);
+        const l = await api('/api/listings', { form: body });
         const invite = await api('/api/invites', { json: { listing_id: l.id, channel: 'link' } });
         e.target.reset();
+        clearImage();
         toast('Payment request is ready to send', 'info');
         onCreated({ ...invite, title: l.title, price: money(l.price, l.currency), listing_id: l.id });
       } catch (err) { toast(err.message); }
@@ -91,7 +113,24 @@ function RequestForm({ seller, onCreated }) {
       <label className="lbl">Description<textarea name="description" required rows={3} className="field" placeholder="Condition and what is included" /></label>
       <div className="pair">
         <label className="lbl">Price ({seller.currency_label || 'USD'})<input name="price" type="number" step="0.01" min="1" required className="field" /></label>
-        <label className="lbl">Image URL <span className="opt">optional</span><input name="image_url" className="field" placeholder="https://…" /></label>
+        <div className="lbl">Image <span className="opt">optional</span>
+          <div className="image-choices">
+            <label className="btn btn-line">Upload an image
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => { pickImage(e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
+            <label className="btn btn-line"><Icon name="camera" /> Take photo
+              <input type="file" accept="image/*" capture="environment" onChange={(e) => { pickImage(e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
+          </div>
+          {preview ? (
+            <div className="image-preview">
+              <img src={preview} alt="" />
+              <button type="button" className="btn btn-line" onClick={clearImage}>Remove</button>
+            </div>
+          ) : (
+            <input name="image_url" className="field" placeholder="Or paste an image link" />
+          )}
+        </div>
       </div>
       <button type="submit" className="btn btn-primary btn-block" disabled={busy}>{busy ? 'Verifying listing…' : 'Create payment request'}</button>
     </form>
@@ -117,6 +156,8 @@ function ListingCard({ listing: l, onInvite }) {
 
 function Trust({ seller: s, reload }) {
   const toast = useToast();
+  const [platform, setPlatform] = useState('instagram');
+  const [socialForm, setSocialForm] = useState(0);
   const verifiedSocial = (s.socials || []).some((x) => x.status === 'verified');
   const done = [!!s.photo_url, verifiedSocial, s.kyc_status === 'verified'].filter(Boolean).length;
 
@@ -150,36 +191,35 @@ function Trust({ seller: s, reload }) {
             <button className="btn btn-navy" type="submit">Save photo</button>
           </form>
         </div>
-        <form className="stack" onSubmit={(e) => {
+        <form key={socialForm} className="stack" onSubmit={(e) => {
           e.preventDefault();
           const body = formData(e.target);
-          run(async () => { await api('/api/seller/socials', { json: body }); e.target.reset(); }, 'Account added. Put the code on that profile, then check it.');
+          const custom = body.platform === 'other';
+          run(async () => {
+            await api('/api/seller/socials', { json: body });
+            setPlatform('instagram');
+            setSocialForm((n) => n + 1);
+          }, custom
+            ? 'Account saved. A code check only runs on TikTok, Instagram, Facebook, X, and YouTube.'
+            : 'Account added. Put the code on that profile, then check it.');
         }}>
-          <div className="pair">
-            <label className="lbl">Account
-              <select name="platform" className="field">
-                <option value="instagram">Instagram</option>
-                <option value="tiktok">TikTok</option>
-                <option value="facebook">Facebook</option>
-                <option value="x">X</option>
-                <option value="youtube">YouTube</option>
-              </select>
-            </label>
-            <label className="lbl">Username<input name="handle" required className="field" placeholder="@yourname or profile link" /></label>
-          </div>
+          <PlatformFields platform={platform} onPlatform={setPlatform} />
           <button className="btn btn-primary" type="submit">Add account</button>
         </form>
         <div className="stack">
           {(s.socials || []).length ? s.socials.map((a) => {
             const checked = a.status === 'verified';
+            const custom = String(a.platform || '').startsWith('other:');
             return (
               <article className="social" key={a.id}>
                 <div className="social-top"><b>{a.label}</b> <span className="meta">@{a.handle}</span> {checked ? <span className="ok">checked</span> : <span className="warn">not checked yet</span>}</div>
                 {checked
                   ? <a className="social-link" href={a.profile_url} target="_blank" rel="noopener noreferrer">{a.profile_url}</a>
-                  : <p className="meta" style={{ margin: 0 }}>Put <b>{a.code}</b> in the bio or a public post, then check.</p>}
+                  : custom
+                    ? <p className="meta" style={{ margin: 0 }}>Saved as {a.label}. Buyers see an account after a code check, and that check runs on TikTok, Instagram, Facebook, X, and YouTube.</p>
+                    : <p className="meta" style={{ margin: 0 }}>Put <b>{a.code}</b> in the bio or a public post, then check.</p>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {!checked && <button type="button" className="btn btn-line" onClick={() => run(() => api(`/api/seller/socials/${a.id}/check`, { json: {} }), 'That account is checked')}>Check {a.label}</button>}
+                  {!checked && !custom && <button type="button" className="btn btn-line" onClick={() => run(() => api(`/api/seller/socials/${a.id}/check`, { json: {} }), 'That account is checked')}>Check {a.label}</button>}
                   <button type="button" className="btn btn-line" onClick={() => run(() => api(`/api/seller/socials/${a.id}`, { method: 'DELETE' }))}>Remove</button>
                 </div>
               </article>
@@ -224,40 +264,41 @@ export default function Seller({ view }) {
 
   const s = data?.seller;
   const n = data?.stats;
+  const disputes = s?.total_disputes || 0;
   return (
     <main id="main" className="page">
-      <h1 className="page-title">{title}</h1>
-      <p className="page-lead">{lead}</p>
+      <DashHead
+        kicker="Seller"
+        title={view === 'overview' ? greeting(user.name) : title}
+        lead={view === 'overview' ? (s ? `${s.name} is ${s.verified ? 'verified' : 'not verified yet'}. Money on hold stays in PayPal until the buyer confirms.` : 'Money on hold stays in PayPal until the buyer confirms.') : lead}
+        action={view === 'overview' ? <a className="btn btn-navy" href="#request">Request a payment</a> : null}
+      />
       <ErrorNote error={error} />
       {!data ? (!error && <Loading>Loading shop…</Loading>) : (
         <>
           {view === 'overview' && (
             <>
-              <p className="meta" style={{ marginTop: 10 }}>{s.name} · {s.verified ? 'verified' : 'unverified'} · {s.total_orders} orders · {s.total_disputes} disputes</p>
               {share && <SharePanel share={share} />}
               <section className="stats" aria-label="Seller summary">
-                <article className="card stat"><span>Listings</span><strong>{n.listings}</strong></article>
-                <article className="card stat"><span>Orders</span><strong>{n.orders}</strong></article>
-                <article className="card stat"><span>On hold</span><strong>{money(n.held, n.currency)}</strong></article>
-                <article className="card stat"><span>Released</span><strong>{money(n.released, n.currency)}</strong></article>
+                <Stat icon="lock" label="On hold" value={money(n.held, n.currency)} note="Waiting for the buyer to confirm" />
+                <Stat icon="wallet" label="Released" value={money(n.released, n.currency)} note="Paid to this shop" tone="good" />
+                <Stat icon="orders" label="Orders" value={n.orders} note={disputes ? `${disputes} dispute${disputes === 1 ? '' : 's'} on record` : 'No disputes on record'} tone={disputes ? 'warn' : 'good'} />
+                <Stat icon="tag" label="Listings" value={n.listings} note="Payment requests you can send again" />
               </section>
-              <div className="dash-grid">
-                <RequestForm seller={s} onCreated={async (next) => { setShare(next); await reload(); }} />
-                <section className="stack">
-                  <div className="page-head">
-                    <h2 className="section-title">Recent orders</h2>
-                    {data.orders.length > 5 && <Link className="see-all" to="/seller/orders">View all orders</Link>}
-                  </div>
-                  <div className="card">{data.orders.length ? data.orders.slice(0, 5).map((o) => <OrderRow key={o.id} order={o} hint={hint(o)} />) : <p className="empty">No orders on this shop yet.</p>}</div>
-                </section>
-              </div>
-              <section className="stack section-gap">
-                <div className="page-head">
-                  <h2 className="section-title">Complaints</h2>
-                  <Link className="btn btn-line" to="/support">File a complaint</Link>
+              <div className="dash-board">
+                <Panel
+                  title="Recent orders"
+                  action={data.orders.length > 5 ? <Link className="see-all" to="/seller/orders">View all</Link> : null}
+                >
+                  {data.orders.length ? data.orders.slice(0, 5).map((o) => <OrderRow key={o.id} order={o} hint={hint(o)} />) : <p className="empty">No orders on this shop yet.</p>}
+                </Panel>
+                <div className="dash-side">
+                  <RequestForm seller={s} onCreated={async (next) => { setShare(next); await reload(); }} />
+                  <Panel title="Reports" action={<Link className="see-all" to="/support">File one</Link>}>
+                    {data.tickets.length ? data.tickets.map((t) => <TicketRow key={t.id} ticket={t} />) : <p className="empty">No reports for this shop.</p>}
+                  </Panel>
                 </div>
-                <div className="card">{data.tickets.length ? data.tickets.map((t) => <TicketRow key={t.id} ticket={t} />) : <p className="empty">No support tickets for this shop.</p>}</div>
-              </section>
+              </div>
             </>
           )}
           {view === 'orders' && (

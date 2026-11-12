@@ -1,10 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api.js';
-import { SETTLED, money, when } from '../lib/format.js';
+import { SETTLED, greeting, money, when } from '../lib/format.js';
 import { useLoad, useTitle } from '../lib/hooks.js';
 import { useSession } from '../lib/session.jsx';
 import { useToast } from '../lib/toast.jsx';
-import { ErrorNote, Loading, OrderRow, TicketRow } from '../components/ui.jsx';
+import { DashHead, ErrorNote, Loading, OrderRow, Panel, Stat, TicketRow } from '../components/ui.jsx';
 
 function hint(o) {
   if (o.state === 'INITIATED') return 'Finish PayPal approval';
@@ -29,7 +29,7 @@ function FindSeller() {
   const navigate = useNavigate();
   const toast = useToast();
   return (
-    <section className="card card-pad stack" style={{ marginTop: 18 }}>
+    <section className="card card-pad stack">
       <h2 style={{ margin: 0 }}>Buy from a seller</h2>
       <div className="pair">
         <form className="stack" role="search" onSubmit={(e) => {
@@ -65,51 +65,53 @@ export default function Buyer({ view }) {
   const first = String(user.name || '').split(/\s+/)[0];
   useTitle(view === 'orders' ? 'Orders' : 'Overview');
 
+  const open = data?.stats.open_tickets || 0;
   return (
     <main id="main" className="page">
-      <h1 className="page-title">{view === 'orders' ? 'Orders' : first ? `Welcome back, ${first}` : 'Overview'}</h1>
-      <p className="page-lead">{view === 'orders' ? 'Every order you have paid into escrow, newest first.' : `Payment requests sent to ${user.email} show up here.`}</p>
+      <DashHead
+        kicker="Buyer"
+        title={view === 'orders' ? 'Orders' : greeting(first)}
+        lead={view === 'orders' ? 'Every payment you have made, newest first.' : 'Track money still on hold, what has been released, and anything you need to report.'}
+        action={view === 'orders' ? null : <Link className="btn btn-navy" to="/support">Report a problem</Link>}
+      />
       <ErrorNote error={error} />
       {!data ? <Loading>Loading your payments…</Loading> : view === 'orders' ? (
-        <section className="stack" style={{ marginTop: 18 }}><OrdersCard orders={data.orders} /></section>
+        <OrdersCard orders={data.orders} />
       ) : (
         <>
-          <FindSeller />
-          {data.invites?.length > 0 && (
-            <section className="stack" style={{ marginTop: 18 }}>
-              <h2 className="section-title">Waiting for you</h2>
-              <div className="card">
-                {data.invites.map((inv) => (
-                  <Link key={inv.id} className="row-link" to={`/i/${inv.id}`}>
-                    <span><b>{inv.title}</b><span className="meta">{inv.seller_name} asked you to pay</span></span>
-                    <span className="price">{money(inv.price, inv.currency)}</span>
-                    <span className="badge b-amber">to pay</span>
-                    <span className="meta">{when(inv.created_at)}</span>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          )}
           <section className="stats" aria-label="Buyer summary">
-            <article className="card stat"><span>Orders</span><strong>{data.stats.orders}</strong></article>
-            <article className="card stat"><span>On hold</span><strong>{money(data.stats.held, data.stats.currency)}</strong></article>
-            <article className="card stat"><span>Released</span><strong>{money(data.stats.released, data.stats.currency)}</strong></article>
-            <article className="card stat"><span>Open complaints</span><strong>{data.stats.open_tickets}</strong></article>
+            <Stat icon="lock" label="On hold" value={money(data.stats.held, data.stats.currency)} note="Still in PayPal until you confirm" />
+            <Stat icon="wallet" label="Released" value={money(data.stats.released, data.stats.currency)} note="Paid out after you confirmed" tone="good" />
+            <Stat icon="orders" label="Orders" value={data.stats.orders} note={data.invites?.length ? `${data.invites.length} waiting for you` : 'Nothing waiting to pay'} />
+            <Stat icon="flag" label="Open reports" value={open} note={open ? 'A complaint is still open' : 'No open complaints'} tone={open ? 'warn' : 'good'} />
           </section>
-          <section className="stack">
-            <div className="page-head">
-              <h2 className="section-title">Recent orders</h2>
-              {data.orders.length > 5 && <Link className="see-all" to="/buyer/orders">View all orders</Link>}
+          <div className="dash-board">
+            <Panel
+              title="Recent orders"
+              action={data.orders.length > 5 ? <Link className="see-all" to="/buyer/orders">View all</Link> : null}
+            >
+              {data.orders.length ? data.orders.slice(0, 5).map((o) => <OrderRow key={o.id} order={o} hint={hint(o)} />)
+                : <p className="empty">No orders yet. Open a payment link a seller sent you, or buy from the demo market.</p>}
+            </Panel>
+            <div className="dash-side">
+              {data.invites?.length > 0 && (
+                <Panel title="Waiting for you">
+                  {data.invites.map((inv) => (
+                    <Link key={inv.id} className="row-link" to={`/i/${inv.id}`}>
+                      <span><b>{inv.title}</b><span className="meta">{inv.seller_name} asked you to pay</span></span>
+                      <span className="price">{money(inv.price, inv.currency)}</span>
+                      <span className="badge b-amber">to pay</span>
+                      <span className="meta">{when(inv.created_at)}</span>
+                    </Link>
+                  ))}
+                </Panel>
+              )}
+              <FindSeller />
+              <Panel title="Reports" action={<Link className="see-all" to="/support">File one</Link>}>
+                {data.tickets.length ? data.tickets.map((t) => <TicketRow key={t.id} ticket={t} />) : <p className="empty">No reports from this email.</p>}
+              </Panel>
             </div>
-            <OrdersCard orders={data.orders.slice(0, 5)} />
-          </section>
-          <section className="stack section-gap">
-            <div className="page-head">
-              <h2 className="section-title">Complaints</h2>
-              <Link className="btn btn-line" to="/support">File a complaint</Link>
-            </div>
-            <div className="card">{data.tickets.length ? data.tickets.map((t) => <TicketRow key={t.id} ticket={t} />) : <p className="empty">No support tickets from this email.</p>}</div>
-          </section>
+          </div>
         </>
       )}
     </main>

@@ -3,6 +3,7 @@ import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useSession } from '../lib/session.jsx';
 import { dashPath, initials } from '../lib/format.js';
 import { Brand, Icon, SimBar } from './ui.jsx';
+import Tour, { requestTour } from './Tour.jsx';
 
 // Sidebar items per role. `match` decides which item is current for a path.
 function sideNav(user, path) {
@@ -11,14 +12,16 @@ function sideNav(user, path) {
   const orders = (base) => path === `${base}/orders` || path.startsWith('/o/');
   const community = { to: '/community', label: 'Community', icon: 'users', on: prefix('/community') };
   const support = { to: '/support', label: 'Support', icon: 'help', on: prefix('/support') };
+  // API keys, docs, and the sample call. Same place for every signed-in role.
+  const developers = { to: '/developer', label: 'Developers', icon: 'code', on: prefix('/developer') };
   if (user.role === 'seller') {
     return [
       { to: '/seller', label: 'Overview', icon: 'home', on: exact('/seller') },
       { to: '/seller/orders', label: 'Orders', icon: 'orders', on: orders('/seller') },
       { to: '/seller/listings', label: 'Listings', icon: 'tag', on: path === '/seller/listings' || path.startsWith('/l/') },
       { to: '/seller/verification', label: 'Verification', icon: 'shield', on: exact('/seller/verification') },
-      community,
       support,
+      developers,
     ];
   }
   if (user.role === 'admin') {
@@ -27,15 +30,16 @@ function sideNav(user, path) {
       { to: '/market', label: 'Market', icon: 'market', on: prefix('/market', '/l') },
       community,
       support,
+      developers,
     ];
   }
   return [
     { to: '/buyer', label: 'Overview', icon: 'home', on: exact('/buyer') },
     { to: '/buyer/orders', label: 'Orders', icon: 'orders', on: orders('/buyer') },
     { to: '/sellers', label: 'Find sellers', icon: 'search', on: prefix('/sellers', '/s') },
-    { to: '/market', label: 'Market', icon: 'market', on: prefix('/market', '/l', '/i', '/checkout') },
     community,
     support,
+    developers,
   ];
 }
 
@@ -59,18 +63,18 @@ function Shell({ user, sim, logout }) {
   return (
     <>
       <div className="mbar">
-        <button type="button" className="mbar-btn" onClick={() => setOpen(true)} aria-label="Open menu" aria-controls="side" aria-expanded={open}><Icon name="menu" /></button>
+        <button type="button" className="mbar-btn" data-tour="menu" onClick={() => setOpen(true)} aria-label="Open menu" aria-controls="side" aria-expanded={open}><Icon name="menu" /></button>
         <Brand to={dashPath(user.role)} />
       </div>
       <aside className="side" id="side" aria-label="Dashboard">
         <div className="side-brand"><Brand to={dashPath(user.role)} sub={role} /></div>
-        <nav className="side-nav" aria-label="Primary">
+        <nav className="side-nav" aria-label="Primary" data-tour="sidebar">
           {sideNav(user, pathname).map((n) => (
-            <Link key={n.to} to={n.to} className="side-link" aria-current={n.on ? 'page' : undefined}><Icon name={n.icon} /><span>{n.label}</span></Link>
+            <Link key={n.to} to={n.to} className="side-link" data-tour={n.to === '/community' ? 'nav-community' : undefined} aria-current={n.on ? 'page' : undefined}><Icon name={n.icon} /><span>{n.label}</span></Link>
           ))}
         </nav>
         <div className="side-foot">
-          <Link to="/developer/dashboard" className="side-link"><Icon name="code" /><span>Developer</span></Link>
+          <button type="button" className="side-tour" data-tour="tour-launch" onClick={requestTour}>Take a tour</button>
           <div className="side-user">
             <span className="side-avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
             <span className="side-who"><b>{user.name}</b><span>{user.email}</span></span>
@@ -80,45 +84,58 @@ function Shell({ user, sim, logout }) {
       </aside>
       {open && <div className="side-scrim" onClick={() => setOpen(false)} />}
       {sim && <SimBar />}
+      {pathname.startsWith('/developer') && <DevSubnav pathname={pathname} />}
       <Outlet />
     </>
   );
 }
 
-// Marketing header: the full menu on the landing page, just the way in everywhere else.
+// The same destinations on every public page. The current one is marked.
+const PRIMARY = [
+  { to: '/market', label: 'Market', on: (p) => p === '/market' || p.startsWith('/l/') || p.startsWith('/checkout') },
+  { to: '/community', label: 'Community', on: (p) => p.startsWith('/community') },
+  { to: '/developer', label: 'Developers', on: (p) => p.startsWith('/developer') },
+];
+
+function accountHref(path, pathname, search) {
+  if (pathname === '/login' || pathname === '/signup') return `${path}${search}`;
+  if (pathname === '/') return path;
+  return `${path}?next=${encodeURIComponent(pathname + search)}`;
+}
+
 function TopBar() {
   const { pathname, search } = useLocation();
-  const here = encodeURIComponent(pathname + search);
-  let links;
-  if (pathname === '/') {
-    links = (
-      <>
-        <Link to="/market">Market</Link>
-        <Link to="/community">Community</Link>
-        <Link to="/developer">Developers</Link>
-        <Link to="/login">Sign in</Link>
-        <Link to="/signup" className="topnav-cta">Create account</Link>
-      </>
-    );
-  } else if (pathname === '/login') {
-    links = <Link to={`/signup${search}`}>Create account</Link>;
-  } else if (pathname === '/signup') {
-    links = <Link to={`/login${search}`}>Sign in</Link>;
-  } else {
-    links = (
-      <>
-        <Link to={`/login?next=${here}`}>Sign in</Link>
-        <Link to={`/signup?next=${here}`} className="topnav-cta">Create account</Link>
-      </>
-    );
-  }
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <Brand to="/" />
-        <nav className="topnav" aria-label="Primary">{links}</nav>
+        <Brand to="/" label="Funguo, home" />
+        <nav className="topnav" id="site-nav" aria-label="Primary" data-tour="nav">
+          {PRIMARY.map((item) => (
+            <Link key={item.to} to={item.to} data-tour={item.to === '/community' ? 'nav-community' : undefined} aria-current={item.on(pathname) ? 'page' : undefined}>{item.label}</Link>
+          ))}
+          <Link to={accountHref('/login', pathname, search)} aria-current={pathname === '/login' ? 'page' : undefined}>Sign in</Link>
+          <Link to={accountHref('/signup', pathname, search)} className="topnav-cta" aria-current={pathname === '/signup' ? 'page' : undefined}>Create account</Link>
+          <button type="button" className="tour-launch" onClick={requestTour}>Tour</button>
+        </nav>
       </div>
+      {pathname.startsWith('/developer') && <DevSubnav pathname={pathname} />}
     </header>
+  );
+}
+
+function DevSubnav({ pathname }) {
+  const items = [
+    ['/developer', 'Overview', pathname === '/developer'],
+    ['/developer/docs', 'Docs', pathname.startsWith('/developer/docs')],
+    ['/developer/dashboard', 'Apps & credentials', pathname.startsWith('/developer/dashboard') || pathname.startsWith('/developer/apps')],
+    ['/shop', 'Sample shop', false],
+  ];
+  return (
+    <nav className="site-subnav" aria-label="Developer" data-tour="devnav">
+      {items.map(([to, label, on]) => (
+        <Link key={to} to={to} aria-current={on ? 'page' : undefined}>{label}</Link>
+      ))}
+    </nav>
   );
 }
 
@@ -134,51 +151,21 @@ function FocusBar({ logout }) {
   );
 }
 
-function DevBar({ user, logout }) {
-  const { pathname } = useLocation();
-  const link = (to, label, on) => <Link to={to} aria-current={on ? 'page' : undefined}>{label}</Link>;
-  return (
-    <header className="topbar devbar">
-      <div className="topbar-inner">
-        <Brand to="/developer" sub="Developer" />
-        <nav className="topnav" aria-label="Developer">
-          {link('/developer', 'Overview', pathname === '/developer')}
-          {link('/developer/docs', 'Docs', pathname.startsWith('/developer/docs'))}
-          {link('/developer/dashboard', 'Apps & Credentials', pathname.startsWith('/developer/dashboard') || pathname.startsWith('/developer/apps'))}
-          {link('/shop', 'Sample shop', false)}
-        </nav>
-        <div className="dev-right">
-          {user ? (
-            <>
-              <Link to={dashPath(user.role)} className="dev-back">Funguo dashboard</Link>
-              <button type="button" className="btn btn-line" onClick={logout}>Log out</button>
-            </>
-          ) : (
-            <>
-              <Link to="/login?next=%2Fdeveloper%2Fdashboard" className="dev-back">Log in</Link>
-              <Link to="/signup?next=%2Fdeveloper%2Fdashboard" className="btn btn-gold">Sign up</Link>
-            </>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
 export default function Layout() {
   const { user, health, ready, logout } = useSession();
   const { pathname } = useLocation();
   if (!ready) return null;
   const sim = health?.paypal_mode === 'simulate';
   const skip = <a className="skip" href="#main">Skip to content</a>;
-  if (pathname.startsWith('/developer')) {
-    return <>{skip}{sim && <SimBar />}<DevBar user={user} logout={logout} /><Outlet /></>;
+  const tour = <Tour user={user} />;
+  if (pathname === '/login' || pathname === '/signup') {
+    return <>{skip}{sim && <SimBar />}<TopBar /><Outlet />{tour}</>;
   }
   if (user && pathname === '/seller/onboarding') {
-    return <>{skip}{sim && <SimBar />}<FocusBar logout={logout} /><Outlet /></>;
+    return <>{skip}{sim && <SimBar />}<FocusBar logout={logout} /><Outlet />{tour}</>;
   }
-  if (user) return <>{skip}<Shell user={user} sim={sim} logout={logout} /></>;
-  return <>{skip}{sim && <SimBar />}<TopBar /><Outlet /></>;
+  if (user) return <>{skip}<Shell user={user} sim={sim} logout={logout} />{tour}</>;
+  return <>{skip}{sim && <SimBar />}<TopBar /><Outlet />{tour}</>;
 }
 
 // ---- route guards (the server enforces the same rules on full page loads) ----

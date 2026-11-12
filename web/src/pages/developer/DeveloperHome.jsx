@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { copy, when } from '../../lib/format.js';
+import { copy } from '../../lib/format.js';
 import { useLoad, useTitle } from '../../lib/hooks.js';
 import { useToast } from '../../lib/toast.jsx';
 
@@ -8,8 +8,8 @@ export default function DeveloperHome() {
   useTitle('Developer');
   const toast = useToast();
   const { data } = useLoad(async () => {
-    const [demo, feed] = await Promise.all([api('/api/apps/demo'), api('/api/apps/demo/events')]);
-    return { key: demo.api_key, events: feed.events || [] };
+    const demo = await api('/api/apps/demo');
+    return { key: demo.api_key };
   });
   const origin = window.location.origin;
 
@@ -62,33 +62,17 @@ export default function DeveloperHome() {
           </Link>
         </section>
 
-        <section className="split">
-          <div className="card card-pad stack">
-            <p className="eyebrow">Sandbox</p>
-            <h2 style={{ margin: 0 }}>Try it without an account</h2>
-            <p className="meta" style={{ margin: 0 }}>The sample shop <b>Abode</b> has a public sandbox key so you can see a call work end to end. Use your own app's key for anything else: keys from <Link to="/developer/dashboard">Apps &amp; Credentials</Link> are private to you.</p>
-            <label className="lbl">Public sandbox key
-              <div className="cred">
-                <input className="field" readOnly value={data?.key || 'Loading…'} />
-                <button type="button" className="btn btn-line" onClick={async () => { await copy(data?.key || ''); toast('Copied', 'info'); }}>Copy</button>
-              </div>
-            </label>
-            <Link className="btn btn-navy" to="/shop">Open the sample cart</Link>
-          </div>
-          <div className="card card-pad stack">
-            <p className="eyebrow">Live from the sample shop</p>
-            <h2 style={{ margin: 0 }}>Recent webhook events</h2>
-            {!data ? <p className="meta">Loading…</p> : data.events.length ? (
-              <div>
-                {data.events.slice(0, 6).map((e) => (
-                  <div className="kv" key={e.id}><div>
-                    <span><code>{e.type}</code> <span className="meta">{e.order_id || ''}</span></span>
-                    <span className="meta">{e.delivered ? 'delivered' : 'not delivered'} · {when(e.created_at)}</span>
-                  </div></div>
-                ))}
-              </div>
-            ) : <p className="meta">None yet. Pay from the sample cart and they show up here.</p>}
-          </div>
+        <section className="card card-pad stack">
+          <p className="eyebrow">Sandbox</p>
+          <h2 style={{ margin: 0 }}>Try it without an account</h2>
+          <p className="meta" style={{ margin: 0 }}>The sample shop <b>Abode</b> has a public sandbox key so you can see a call work end to end. Use your own app's key for anything else: keys from <Link to="/developer/dashboard">Apps &amp; Credentials</Link> are private to you.</p>
+          <label className="lbl">Public sandbox key
+            <div className="cred">
+              <input className="field" readOnly value={data?.key || 'Loading…'} />
+              <button type="button" className="btn btn-line" onClick={async () => { await copy(data?.key || ''); toast('Copied', 'info'); }}>Copy</button>
+            </div>
+          </label>
+          <Link className="btn btn-navy" to="/shop">Open the sample cart</Link>
         </section>
 
         <section className="card card-pad stack">

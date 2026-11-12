@@ -15,12 +15,13 @@ import {
   setKyc,
   markSocialVerified,
   saveSellerDocument,
+  rememberPlatformName,
   saveSocial,
   setSellerPhoto,
   socialsForSeller,
 } from '../db.js';
 import { verifyIdentity } from '../kyc.js';
-import { cleanHandle, listPlatforms, PLATFORMS, profileHasCode } from '../socials.js';
+import { cleanHandle, isCustomPlatform, listPlatforms, profileHasCode, resolvePlatform } from '../socials.js';
 
 export const identity = Router();
 
@@ -84,11 +85,12 @@ identity.get('/sellers/:id/photo', (req, res) => {
 identity.post('/seller/socials', (req, res) => {
   const user = sellerUser(req, res);
   if (!user) return;
-  const platform = String(req.body?.platform || '');
-  if (!PLATFORMS[platform]) return res.status(400).json({ error: 'Choose TikTok, Instagram, Facebook, X, or YouTube' });
+  const picked = resolvePlatform(req.body?.platform, req.body?.platform_name);
+  if (picked.error) return res.status(400).json({ error: picked.error });
   const handle = cleanHandle(req.body?.handle);
   if (!handle) return res.status(400).json({ error: 'Enter the username from that account' });
-  saveSocial({ seller_id: user.seller_id, platform, handle });
+  rememberPlatformName(picked.id, picked.label);
+  saveSocial({ seller_id: user.seller_id, platform: picked.id, handle });
   res.status(201).json({ socials: socialsForSeller(user.seller_id, { codes: true }) });
 });
 
@@ -98,6 +100,9 @@ identity.post('/seller/socials/:id/check', async (req, res) => {
   const row = getSocial(req.params.id);
   if (!row || row.seller_id !== user.seller_id) return res.status(404).json({ error: 'That account was not found' });
   if (row.status === 'verified') return res.json({ socials: socialsForSeller(user.seller_id, { codes: true }) });
+  if (isCustomPlatform(row.platform)) {
+    return res.status(422).json({ error: 'A code check only runs on TikTok, Instagram, Facebook, X, and YouTube.' });
+  }
   let result;
   try {
     result = await profileHasCode(row.platform, row.handle, row.code);
